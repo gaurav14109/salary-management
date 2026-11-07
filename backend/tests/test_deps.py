@@ -67,4 +67,11 @@ def test_no_actor_is_provisioned_for_a_request_that_never_gets_past_the_gate(api
     port fill the table with rows of their choosing."""
     api.get("/who", headers={**headers(), "X-Gateway-Key": "wrong"})
 
-    assert db.execute(text("SELECT count(*) FROM app_user")).scalar_one() == 0
+    # Counted for this subject: app_user is not empty, because migration 0002 seeds
+    # the system actor that owns the seeded FX rates.
+    assert (
+        db.execute(
+            text("SELECT count(*) FROM app_user WHERE external_id = 'kc-sub-route'")
+        ).scalar_one()
+        == 0
+    )

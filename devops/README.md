@@ -9,6 +9,7 @@ ddl/*.sql            the schema as plain SQL — a snapshot, executed only by 00
 alembic/versions/    the migration chain
 alembic.ini          alembic is run from this directory
 create_schema.py     local convenience: --reset drops everything, then migrates
+seed/*.sql           reference data every database needs before anything can be created
 keycloak/            the realm: clients, roles, seed users, imported on first start
 create_user.py       add a user to a realm that is already running
 postgres-init/       creates Keycloak's own database, once, on an empty volume
@@ -17,6 +18,45 @@ postgres-init/       creates Keycloak's own database, once, on an empty volume
 Everything about identity lives here rather than in `backend/`, for the same reason
 the schema does: a realm is infrastructure. The salary service holds no realm, no
 client, no password and never sees a token.
+
+## Reference data
+
+`employee.department_id` and `salary.currency` are NOT NULL foreign keys, the import
+refuses an unknown value rather than inventing one, and there is no screen for
+creating departments. So an empty reference table means nothing can be created by any
+route — which makes these rows part of getting the database to a working state, and
+therefore a migration's job. Revision `0002` applies `seed/` in filename order.
+
+| File | Holds | Changes when |
+|---|---|---|
+| `001_currency.sql` | 36 ISO 4217 currencies with their minor units | ISO does |
+| `002_country.sql` | 45 ISO 3166-1 countries ACME employs in | ACME opens an office |
+| `003_department.sql` | 12 departments | ACME reorganises |
+| `004_band.sql` | L1–L7 with their ranks | ACME changes its levelling |
+| `005_system_user.sql` | the `system:seed` actor | never |
+| `006_fx_rate.sql` | one indicative rate per currency, USD = 1 | an admin posts a real one |
+
+The first two are facts about the world. The last two are ACME's own structure and are
+expected to be edited — they are seeded only because an empty table would be a dead end.
+
+**The seeded FX rates are indicative, and dated 2020-01-01 — which is not when they were
+true.** The alternative was dating them recently, which makes every salary effective
+before that date fail with `MissingFxRate`, so no historical import works on a fresh
+database. Dated early, every realistic salary date resolves. They are designed to be
+superseded rather than corrected: the lookup takes the most recent rate on or before the
+salary date, so an admin posting real dated rates overrides these from that date onward
+without deleting anything. What they never are is a fallback to 1.0 — a missing rate
+raises, because a salary stored at parity is wrong by a factor of eighty and still looks
+like money.
+
+`fx_rate.created_by` is NOT NULL on purpose: a rate moves every reported figure in its
+currency, so it has to be attributable. The seeded rates are owned by `system:seed`
+rather than a fabricated human — nobody can log in as it, and it is obviously not a
+person when it shows up in a report.
+
+Every statement is `ON CONFLICT DO NOTHING`, so the revision is safe against a database
+where some rows were added by hand. The downgrade deletes only rows nothing references,
+so it cannot fail halfway and leave the tables partly emptied.
 
 ## Users
 

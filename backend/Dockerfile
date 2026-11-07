@@ -76,6 +76,7 @@ COPY --from=builder /opt/venv-migrate /opt/venv-migrate
 # success.
 COPY --chown=root:root devops/alembic     ./devops/alembic
 COPY --chown=root:root devops/ddl         ./devops/ddl
+COPY --chown=root:root devops/seed        ./devops/seed
 COPY --chown=root:root devops/alembic.ini ./devops/alembic.ini
 
 USER api

@@ -16,6 +16,11 @@ from fastapi import Depends, FastAPI
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.api.dashboard import router as dashboard_router
+from app.api.employees import router as employees_router
+from app.api.fx import router as fx_router
+from app.api.imports import router as imports_router
+from app.api.reference import router as reference_router
 from app.db import get_db
 from app.errors import register_error_handlers
 from app.logging_setup import configure_logging
@@ -50,6 +55,13 @@ app = FastAPI(
 
 register_error_handlers(app)
 install_middleware(app)
+
+
+app.include_router(dashboard_router)
+app.include_router(employees_router)
+app.include_router(fx_router)
+app.include_router(imports_router)
+app.include_router(reference_router)
 
 
 @app.get("/health", tags=["ops"], response_model=HealthResponse)

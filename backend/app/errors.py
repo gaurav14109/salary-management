@@ -80,6 +80,59 @@ class UnprocessableEntity(SalaryError):
     detail = "The request could not be processed."
 
 
+class MissingFxRate(UnprocessableEntity):
+    """No exchange rate exists for this currency on or before this date.
+
+    Its own class rather than a bare UnprocessableEntity because it is the single
+    most likely reason a salary write or an import row is rejected, and because the
+    fix is specific: an admin adds the rate. The message names both the currency and
+    the date so the person reading it knows exactly which row to create.
+
+    There is deliberately no fallback to 1.0. A salary stored at parity is wrong in a
+    way no report reveals - the figure looks like money and is off by a factor of
+    eighty.
+    """
+
+    def __init__(self, currency: str, as_of: object) -> None:
+        super().__init__(f"No FX rate for {currency} as of {as_of}.")
+        self.currency = currency
+        self.as_of = as_of
+
+
+class PayloadTooLarge(SalaryError):
+    """More than this endpoint will read into memory.
+
+    Checked before parsing rather than after: discovering a file is too big by
+    loading it is the mistake repeated. 413 rather than 422 because the problem is
+    the size, not the contents - the caller cannot fix it by editing a field.
+    """
+
+    status_code = 413
+    detail = "That file is too large."
+
+
+class BackdatedSalary(UnprocessableEntity):
+    """A salary effective on or before the one currently in force.
+
+    Refused rather than accommodated. Closing the open row would set its end date
+    before its own start date - a row that ends before it begins, which the database
+    refuses anyway - and, worse, it would rewrite a period that has already been
+    reported on. A correction to a past period is a different operation with
+    different consequences, and it should look different.
+
+    422 rather than 409: the caller picked a date, and picking another one is the
+    fix. A 409 would say the request was right and the world was wrong.
+    """
+
+    def __init__(self, effective_from: object, current_from: object) -> None:
+        super().__init__(
+            f"Salary cannot start on {effective_from}: the current salary already "
+            f"starts on {current_from}. Use a later date."
+        )
+        self.effective_from = effective_from
+        self.current_from = current_from
+
+
 def _response(request: Request, status_code: int, detail: str, **extra: object) -> JSONResponse:
     """The one place an error becomes bytes.
 

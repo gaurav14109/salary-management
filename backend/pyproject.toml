@@ -10,6 +10,12 @@ dependencies = [
     "pydantic-settings>=2.6",
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.2",
+    # Excel is what HR actually exports. Reading it is a runtime concern, not a dev
+    # one: the import endpoint is a feature, not a script.
+    "openpyxl>=3.1",
+    # FastAPI needs this to parse multipart/form-data. Without it an upload route
+    # raises at import time rather than at request time, which at least fails loudly.
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
@@ -27,7 +33,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["perf: performance tests, excluded from the default run"]
+markers = ["perf: measured against real volume. Run with -m perf; excluded by default"]
 addopts = "-m 'not perf'"
 
 [tool.ruff]

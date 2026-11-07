@@ -66,3 +66,19 @@ class ReadyResponse(BaseModel):
 
     status: str = "ok"
     database: str = "ok"
+
+
+class Page[ItemT](BaseModel):
+    """One page of a collection.
+
+    Every list response is this shape. No endpoint returns an unbounded collection,
+    so no UI can accidentally fetch 10,000 rows by calling one - the limit is the
+    API's, not the caller's discipline.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    items: list[ItemT]
+    total: int = Field(description="Rows matching the filter, not rows on this page.")
+    page: int = Field(ge=1)
+    size: int = Field(ge=1)

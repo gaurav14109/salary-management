@@ -80,20 +80,17 @@ def actor_id(db) -> int:
 
 @pytest.fixture
 def reference_data(db) -> dict[str, object]:
-    """The reference rows an employee cannot exist without."""
-    db.execute(text("INSERT INTO country (code, name) VALUES ('IN', 'India'), ('DE', 'Germany')"))
-    db.execute(
-        text(
-            "INSERT INTO currency (code, name, minor_units) "
-            "VALUES ('USD', 'US Dollar', 2), ('INR', 'Indian Rupee', 2), ('EUR', 'Euro', 2)"
-        )
-    )
+    """The reference rows an employee cannot exist without.
+
+    Read, not inserted. Migration 0002 seeds currencies, countries, departments and
+    bands, so a fixture that inserted its own would collide with the real thing -
+    and, worse, would let a test pass against reference data no deployment has.
+    Tests now run against exactly the rows a fresh database gets.
+    """
     dept_id = db.execute(
-        text("INSERT INTO department (name) VALUES ('Engineering') RETURNING id")
+        text("SELECT id FROM department WHERE lower(name) = 'engineering'")
     ).scalar_one()
-    band_id = db.execute(
-        text("INSERT INTO band (name, rank) VALUES ('L3', 3) RETURNING id")
-    ).scalar_one()
+    band_id = db.execute(text("SELECT id FROM band WHERE rank = 3")).scalar_one()
     return {"department_id": dept_id, "band_id": band_id}
 
 

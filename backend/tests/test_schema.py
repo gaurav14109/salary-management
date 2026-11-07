@@ -111,17 +111,19 @@ def test_an_unknown_department_is_rejected(db, reference_data):
 def test_department_names_collide_regardless_of_case(db):
     """'Engineering' and 'engineering' would split one department's payroll across
     two dashboard rows."""
-    db.execute(text("INSERT INTO department (name) VALUES ('Finance')"))
+    # A name the seed does not already use, so this tests the index rather than
+    # colliding with migration 0002.
+    db.execute(text("INSERT INTO department (name) VALUES ('Procurement')"))
 
     with pytest.raises(IntegrityError, match="ux_department_name"):
-        db.execute(text("INSERT INTO department (name) VALUES ('finance')"))
+        db.execute(text("INSERT INTO department (name) VALUES ('procurement')"))
 
 
 def test_two_bands_cannot_share_a_rank(db):
-    db.execute(text("INSERT INTO band (name, rank) VALUES ('L7', 7)"))
+    db.execute(text("INSERT INTO band (name, rank) VALUES ('L8', 8)"))
 
     with pytest.raises(IntegrityError, match="ux_band_rank"):
-        db.execute(text("INSERT INTO band (name, rank) VALUES ('Principal', 7)"))
+        db.execute(text("INSERT INTO band (name, rank) VALUES ('Principal', 8)"))
 
 
 def test_one_fx_rate_per_currency_per_day(db, reference_data, actor_id):
@@ -208,9 +210,11 @@ def test_current_salary_excludes_a_terminated_employee(db, employee_id, actor_id
 def test_a_three_decimal_currency_keeps_its_last_digit(db, employee_id, actor_id):
     """KWD, BHD, OMR and JOD have three minor units. At NUMERIC(14,2) the third digit
     would be silently rounded away, and nobody would notice until Finance did."""
-    db.execute(
-        text("INSERT INTO currency (code, name, minor_units) VALUES ('KWD', 'Kuwaiti Dinar', 3)")
-    )
+    # Seeded by migration 0002, not inserted here: the three-decimal currencies are
+    # the reason the column is NUMERIC(14,3), so their presence in a real database is
+    # part of what this test is asserting.
+    assert db.execute(text("SELECT minor_units FROM currency WHERE code = 'KWD'")).scalar_one() == 3
+
     insert_salary(
         db,
         employee_id,

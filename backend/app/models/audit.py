@@ -6,6 +6,7 @@ totals with correction records or losing the ability to prove who made a change.
 """
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Integer, String, func
@@ -14,8 +15,34 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
 
-ENTITY_TYPES = ("EMPLOYEE", "SALARY", "FX_RATE", "DEPARTMENT", "BAND")
-ACTIONS = ("CREATE", "UPDATE", "DELETE")
+
+class EntityType(StrEnum):
+    """What was changed.
+
+    Declared beside the CHECK constraint it mirrors, so the two are read together and
+    a value added to one is obviously missing from the other. A test asserts they
+    agree - drift would surface as a constraint violation in production rather than
+    a type error in the editor.
+    """
+
+    EMPLOYEE = "EMPLOYEE"
+    SALARY = "SALARY"
+    FX_RATE = "FX_RATE"
+    DEPARTMENT = "DEPARTMENT"
+    BAND = "BAND"
+
+
+class Action(StrEnum):
+    """What happened to it.
+
+    No READ. An access log is a different thing with a different retention policy and
+    a volume three orders of magnitude higher; putting reads here would bury the
+    fifty changes a day under a million lookups.
+    """
+
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"
 
 
 class AuditLog(Base):
