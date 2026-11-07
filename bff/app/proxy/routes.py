@@ -77,16 +77,19 @@ async def _handle(
     claims = token_verifier.verify(session.access_token)
 
     # Keycloak can revoke a role without the session noticing, so what reaches the
-    # upstream is what the token says now, not what it said at login. Display-only
-    # here; the salary service authorizes.
-    session.roles = sorted(claims.get("realm_access", {}).get("roles", []))
+    # upstream is what the token says now, not what it said at login. The cookie copy
+    # is refreshed too, but it is only what /auth/me renders; these are what the
+    # salary service authorizes on.
+    roles = sorted(claims.get("realm_access", {}).get("roles", []))
+    session.roles = roles
 
     response = await forward(
         http=request.app.state.http,
         request=request,
         upstream_base=upstream.base_url,
         path=path,
-        access_token=session.access_token,
+        session=session,
+        roles=roles,
         request_id=request.state.request_id,
     )
 

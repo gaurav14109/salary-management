@@ -12,12 +12,19 @@ from fastapi import Request, Response
 from app.config import get_settings
 from app.errors import PayloadTooLarge, UpstreamTimeout, UpstreamUnavailable
 from app.security.paths import safe_upstream_path
+from app.security.session import Session
 
 log = logging.getLogger("bff.proxy")
 
 # Allowlist, not denylist. A denylist forwards every header someone thinks of next -
 # X-Forwarded-For, X-User-Id, X-Real-IP - and an upstream that trusts any of them
 # trusts the client (OWASP A03). Everything the upstream needs, it gets explicitly.
+#
+# This matters more than it used to: the upstream decides what a caller may do from
+# X-User-Roles. If a browser could set that header, it would be setting its own
+# permissions. The allowlist is what makes that impossible - the identity headers
+# below are built here, from a verified token, and any inbound copy is dropped
+# before this dictionary is built.
 FORWARDABLE_REQUEST_HEADERS = frozenset(
     {"accept", "accept-language", "content-type", "if-none-match", "if-modified-since", "range"}
 )
@@ -70,9 +77,16 @@ async def forward(
     request: Request,
     upstream_base: str,
     path: str,
-    access_token: str,
+    session: Session,
+    roles: list[str],
     request_id: str,
 ) -> Response:
+    """Forward the request with the caller's identity, and without the caller's token.
+
+    `roles` comes from the token verified moments ago rather than from `session`,
+    so a role revoked in Keycloak stops working on the next request instead of at
+    the next login.
+    """
     safe_path = safe_upstream_path(path)
 
     headers = {
@@ -80,10 +94,21 @@ async def forward(
         for key, value in request.headers.items()
         if key.lower() in FORWARDABLE_REQUEST_HEADERS
     }
-    # Added, never forwarded. A client-supplied Authorization or X-Request-ID is
-    # discarded by the allowlist above before it gets here.
-    headers["Authorization"] = f"Bearer {access_token}"
+    # Added, never forwarded. Anything the client sent under these names was
+    # discarded by the allowlist above before this point.
+    #
+    # No Authorization header. The upstream has no business verifying a token - this
+    # process already did, once, for every service behind it. Sending one anyway
+    # would leave a credential sitting in a service that is not responsible for
+    # checking it, which is an invitation for someone later to trust it.
+    settings = get_settings()
+    headers["X-Gateway-Key"] = settings.gateway_key
+    headers["X-User-Sub"] = session.sub
+    headers["X-User-Name"] = session.username
+    headers["X-User-Roles"] = ",".join(roles)
     headers["X-Request-ID"] = request_id
+    if session.email:
+        headers["X-User-Email"] = session.email
 
     body = await read_body(request)
 

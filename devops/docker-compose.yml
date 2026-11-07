@@ -22,7 +22,7 @@ services:
     volumes:
       - salary-pgdata:/var/lib/postgresql/data
       # Runs once on an empty volume: creates Keycloak's separate database and role.
-      - ../backend/docker/postgres-init:/docker-entrypoint-initdb.d:ro
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       # Postgres briefly accepts connections during init and then restarts.
       # Two consecutive successes is what makes "up" mean ready.
@@ -66,7 +66,7 @@ services:
     volumes:
       # Realm exported to JSON and committed, so a fresh clone gets the same
       # clients, roles and test users instead of a README full of click-through steps.
-      - ../backend/keycloak/realm-salary.json:/opt/keycloak/data/import/realm-salary.json:ro
+      - ./keycloak/realm-salary.json:/opt/keycloak/data/import/realm-salary.json:ro
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'"]
       interval: 5s
@@ -108,15 +108,25 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://salary:salary@db:5432/salary
 
-      # This service validates tokens and never issues one, so it needs the issuer
-      # and the audience and no secret of any kind. Authorization is its job;
-      # authentication was already settled at the BFF.
-      OIDC_ISSUER: http://localhost:8080/realms/salary
-      OIDC_AUDIENCE: salary-api
-    ports:
-      # Published for local inspection only. Nothing in the frontend addresses
-      # :8000 — the browser reaches this service through the BFF or not at all.
-      - "8000:8000"
+      # No OIDC settings. This service never sees a token: the BFF verifies one on
+      # every request and forwards the decoded claims as headers. Authorization is
+      # this service's job; authentication is settled before the request arrives.
+      #
+      # The one secret it holds proves the caller is the BFF. Identity arrives as
+      # headers, so without this anything that could reach the port could claim any
+      # role. Both sides read the same value; they are useless apart.
+      GATEWAY_KEY: ${GATEWAY_KEY:-local-dev-gateway-key-not-for-production}
+
+    # No ports. Deliberately.
+    #
+    # Identity arrives as headers (X-User-Sub, X-User-Roles) rather than as a signed
+    # token, so the only thing standing between this service and a forged ADMIN role
+    # is that nothing except the BFF can reach it. Publishing a host port would make
+    # every one of those headers settable with one curl.
+    #
+    # The BFF still reaches it as http://api:8000 over the compose network, which
+    # needs no publish. To inspect it by hand:
+    #     docker compose exec api curl -s localhost:8000/health/ready
 
   bff:
     build:
@@ -153,6 +163,9 @@ services:
       # Upstreams by service name, on the compose network. Neither is published to
       # the browser; the BFF is the only way in.
       SALARY_API_URL: http://api:8000
+
+      # Must match the api service's. See the note there.
+      GATEWAY_KEY: ${GATEWAY_KEY:-local-dev-gateway-key-not-for-production}
       # Not built yet, and deliberately still on the host: a P1 service that is
       # absent must not stop the stack from starting.
       CHAT_SERVICE_URL: http://host.docker.internal:8002

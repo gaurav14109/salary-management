@@ -34,3 +34,16 @@ def test_ready_reports_the_database_is_reachable(client, engine):
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "database": "ok"}
+
+
+def test_the_application_starts_and_configures_logging():
+    """TestClient only runs lifespan as a context manager, so without this the
+    startup path - logging configuration included - is never executed by the suite.
+    A setting referenced there and missing from Settings would reach production
+    unnoticed."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as started:
+        assert started.get("/health").status_code == 200

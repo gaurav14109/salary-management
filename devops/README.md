@@ -4,12 +4,36 @@ The local stack and the database schema.
 
 ```
 docker-compose.yml   web :5173 (the only address a user types), Keycloak :8080,
-                     API :8000 and BFF :8001 published for inspection, Postgres :5432
+                     BFF :8001 and Postgres :5432. The API publishes no port
 ddl/*.sql            the schema as plain SQL — a snapshot, executed only by 0001
 alembic/versions/    the migration chain
 alembic.ini          alembic is run from this directory
 create_schema.py     local convenience: --reset drops everything, then migrates
+keycloak/            the realm: clients, roles, seed users, imported on first start
+create_user.py       add a user to a realm that is already running
+postgres-init/       creates Keycloak's own database, once, on an empty volume
 ```
+
+Everything about identity lives here rather than in `backend/`, for the same reason
+the schema does: a realm is infrastructure. The salary service holds no realm, no
+client, no password and never sees a token.
+
+## Users
+
+The realm import seeds `hr` and `admin-user`, and runs **only when the realm does not
+exist** — so editing `keycloak/realm-salary.json` does nothing to a stack that is
+already up. For that, `create_user.py` talks to the admin API:
+
+```bash
+python3 create_user.py anita --password s3cret --roles hr_manager \
+    --email anita@acme.test --first Anita --last Rao
+python3 create_user.py --list
+```
+
+Standard library only, so it runs before any virtualenv exists. Idempotent on
+username, and roles are validated against the realm before the user is written — a
+misspelled role creates nothing rather than leaving an account that logs in and is
+refused everywhere. A user who should survive `down -v` goes in the realm JSON too.
 
 ## Running it
 
@@ -28,7 +52,7 @@ never imports one and never reads the other.
 
 | Target | Carries | Runs as |
 |---|---|---|
-| `runtime` | `backend/app` | uvicorn on :8000 |
+| `runtime` | `backend/app` | uvicorn on :8000, inside the network only |
 | `migrator` | `backend/app`, `devops/alembic`, `devops/ddl` | `alembic upgrade head`, then exits |
 
 The migrator carries `backend/app` because `alembic/env.py` reads the database URL
@@ -38,6 +62,14 @@ the app and its migrations.
 `--wait` matters: without it `up -d` returns when containers start, not when they
 are ready, and the API's readiness probe queries `current_salary` — it fails until
 the migration has run.
+
+The API deliberately publishes no host port. It is told who the caller is by headers
+the BFF sets after verifying the token, so a published port would make an `ADMIN`
+role settable with one `curl`. Reach it through the BFF, or for a direct look:
+
+```bash
+docker compose exec api curl -s localhost:8000/health/ready
+```
 
 Open <http://localhost:5173>. nginx serves the built SPA there and proxies `/api`
 and `/auth` to the BFF, so the whole application is same-origin and the session

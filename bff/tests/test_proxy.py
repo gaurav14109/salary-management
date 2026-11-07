@@ -11,7 +11,8 @@ import respx
 
 from app.config import get_settings
 from app.security.csrf import CSRF_HEADER
-from app.security.session import encode
+from app.security.session import Session, decode, encode
+from tests.keys import make_token
 
 API = "http://localhost:8000"
 
@@ -27,13 +28,13 @@ def test_an_unauthenticated_request_never_reaches_the_upstream(client):
 
 
 @respx.mock
-def test_an_authenticated_read_is_forwarded_with_a_bearer_token(authenticated, session):
+def test_an_authenticated_read_is_forwarded_with_the_caller_s_identity(authenticated, session):
     route = respx.get(f"{API}/employees").mock(return_value=httpx.Response(200, json={"items": []}))
 
     response = authenticated.get("/api/employees")
 
     assert response.status_code == 200
-    assert route.calls.last.request.headers["authorization"] == f"Bearer {session.access_token}"
+    assert route.calls.last.request.headers["x-user-sub"] == session.sub
 
 
 @respx.mock
@@ -66,8 +67,9 @@ def test_client_supplied_headers_are_not_passed_through(authenticated):
     assert "x-forwarded-for" not in forwarded
     assert "x-user-id" not in forwarded
     assert "x-real-ip" not in forwarded
-    # The client's Authorization was discarded and replaced by the session's.
-    assert route.calls.last.request.headers["authorization"] != "Bearer attacker-supplied"
+    # The client's Authorization was discarded and not replaced: no token goes
+    # upstream at all, theirs or ours.
+    assert "authorization" not in forwarded
 
 
 @respx.mock
@@ -210,9 +212,19 @@ def test_an_expired_token_is_refreshed_before_forwarding(client, session, fake_k
     response = client.get("/api/employees")
 
     assert response.status_code == 200
-    forwarded = route.calls.last.request.headers["authorization"]
-    assert forwarded == f"Bearer {fake_keycloak.next_tokens['access_token']}"
-    assert forwarded != f"Bearer {session.access_token}"
+    assert route.called
+    # The token never crosses the hop, so the evidence is the re-issued cookie: the
+    # session now holds the refreshed token, not the expired one it arrived with.
+    # Read off the response rather than the jar, which still holds the stale one too.
+    name = get_settings().session_cookie_name
+    raw = next(
+        header.split(f"{name}=", 1)[1].split(";", 1)[0]
+        for header in response.headers.get_list("set-cookie")
+        if header.startswith(f"{name}=")
+    )
+    reissued = decode(raw)
+    assert reissued.access_token == fake_keycloak.next_tokens["access_token"]
+    assert reissued.access_token != session.access_token
 
 
 @respx.mock
@@ -249,3 +261,84 @@ def test_an_oversized_body_is_refused(authenticated, session, monkeypatch):
     real_settings.cache_clear()
     assert response.status_code == 413
     assert not route.called
+
+
+# ── what the upstream is told about the caller ──────────────────────────────────
+#
+# The salary service never sees a token. It is told who is calling by these headers
+# and nothing else, so each one is a security control, not a convenience.
+
+
+@respx.mock
+def test_the_decoded_identity_is_forwarded_as_headers(authenticated, session):
+    route = respx.get(f"{API}/employees").mock(return_value=httpx.Response(200))
+
+    authenticated.get("/api/employees")
+
+    sent = route.calls.last.request.headers
+    assert sent["x-user-sub"] == session.sub
+    assert sent["x-user-email"] == session.email
+    assert sent["x-user-name"] == session.username
+    assert sent["x-user-roles"] == "hr_manager"
+
+
+@respx.mock
+def test_the_roles_forwarded_are_the_token_s_not_the_session_s(authenticated, session, client):
+    """A role revoked in Keycloak must stop working on the next request, not at the
+    next login. The cookie is stale by design; the token is re-read every time."""
+    stale = encode(
+        Session(
+            **{
+                **session.__dict__,
+                "roles": ["admin"],  # what the cookie claims
+                "access_token": make_token(roles=["hr_manager"]),  # what the token says
+            }
+        )
+    )
+    client.cookies.set(get_settings().session_cookie_name, stale)
+    route = respx.get(f"{API}/employees").mock(return_value=httpx.Response(200))
+
+    client.get("/api/employees")
+
+    assert route.calls.last.request.headers["x-user-roles"] == "hr_manager"
+
+
+@respx.mock
+def test_the_gateway_key_is_sent_on_every_upstream_call(authenticated):
+    route = respx.get(f"{API}/employees").mock(return_value=httpx.Response(200))
+
+    authenticated.get("/api/employees")
+
+    assert route.calls.last.request.headers["x-gateway-key"] == get_settings().gateway_key
+
+
+@respx.mock
+def test_the_access_token_is_not_sent_upstream(authenticated):
+    """A token arriving at a service that must never verify it is worse than no
+    token: it invites a later reader to trust it. One trust path, not two."""
+    route = respx.get(f"{API}/employees").mock(return_value=httpx.Response(200))
+
+    authenticated.get("/api/employees")
+
+    assert "authorization" not in {k.lower() for k in route.calls.last.request.headers}
+
+
+@respx.mock
+def test_client_supplied_identity_headers_cannot_reach_the_upstream(authenticated, session):
+    """The whole design rests on this. If a browser could set X-User-Roles, the
+    salary service would be taking its authorization decisions from the attacker."""
+    route = respx.get(f"{API}/employees").mock(return_value=httpx.Response(200))
+
+    authenticated.get(
+        "/api/employees",
+        headers={
+            "X-User-Sub": "kc-sub-attacker",
+            "X-User-Roles": "admin",
+            "X-Gateway-Key": "guessed",
+        },
+    )
+
+    sent = route.calls.last.request.headers
+    assert sent["x-user-sub"] == session.sub
+    assert sent["x-user-roles"] == "hr_manager"
+    assert sent["x-gateway-key"] == get_settings().gateway_key

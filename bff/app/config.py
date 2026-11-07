@@ -43,6 +43,11 @@ class Settings(BaseSettings):
 
     # ── upstreams; the browser can reach neither directly ───────────────────────
     salary_api_url: str = "http://localhost:8000"
+
+    # Proves to the services behind that a request came from this process. They are
+    # told who the caller is by headers rather than by a token, so this - plus the
+    # fact that they publish no host port - is what stops anyone else telling them.
+    gateway_key: str = ""
     chat_service_url: str = "http://localhost:8002"
 
     # ── session ─────────────────────────────────────────────────────────────────

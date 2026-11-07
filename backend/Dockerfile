@@ -41,7 +41,7 @@ RUN useradd --uid 10002 --create-home --shell /usr/sbin/nologin api
 # Code owned by root, process running as api: it can read its own source and
 # cannot rewrite it.
 WORKDIR /srv
-COPY --chown=root:root backend/app ./backend/appred
+COPY --chown=root:root backend/app ./backend/app
 
 # ── the API ─────────────────────────────────────────────────────────────────
 FROM base AS runtime

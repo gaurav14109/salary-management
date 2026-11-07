@@ -10,13 +10,22 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://salary:salary@localhost:5432/salary"
 
-    # Authentication is delegated to Keycloak over OIDC. This application validates
-    # tokens; it never issues one and never sees a password, so there is no signing
-    # secret here. Tokens are checked against Keycloak's published public keys,
-    # fetched once and cached - not by calling Keycloak on every request.
-    oidc_issuer: str = "http://localhost:8080/realms/salary"
-    oidc_audience: str = "salary-api"
-    oidc_jwks_ttl_seconds: int = 3600
+    # The shared secret that proves a request came from the BFF, which is the only
+    # thing permitted to call this service. No default: an unset key makes every
+    # request fail closed, because the alternative - a default that ships - means
+    # every deployment that forgets to set one shares a key with every other.
+    #
+    # There is no OIDC configuration here on purpose. This service never sees a
+    # token: the BFF verifies one on every request against Keycloak's published
+    # keys and forwards the decoded claims as headers. One process parses tokens,
+    # so there is one place to get token handling wrong.
+    gateway_key: str = ""
+
+    # JSON by default: these logs are read by queries, not by eyes - every 403 for
+    # one subject, everything carrying one request id across two services. Set
+    # LOG_JSON=false for a readable terminal while developing.
+    log_level: str = "INFO"
+    log_json: bool = True
 
     # No ANTHROPIC_API_KEY here, deliberately. The chat service is a separate
     # deployable and is the only process that talks to a third party; it carries

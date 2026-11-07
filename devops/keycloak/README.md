@@ -9,13 +9,13 @@ instructions.
 | | |
 |---|---|
 | Realm | `salary` |
-| Realm roles | `admin`, `hr_manager` — read from `realm_access.roles` by `require_role` |
-| `salary-spa` | public client, authorization code + PKCE (S256). No secret in the browser |
+| Realm roles | `admin`, `hr_manager` — the BFF reads `realm_access.roles` and forwards them as `X-User-Roles`; the salary service's `require_role` reads that |
+| `salary-bff` | confidential client, authorization code + PKCE (S256). The secret lives in the BFF, never in the browser |
 | `salary-api` | bearer-only. Exists so tokens carry `aud=salary-api` |
 
 ## Two settings that look odd and are deliberate
 
-**`accessTokenLifespan: 300`.** The API validates tokens against Keycloak's cached public
+**`accessTokenLifespan: 300`.** The BFF validates tokens against Keycloak's cached public
 keys rather than introspecting on every request, so a token stays usable until it expires
 even after an account is disabled. Five minutes keeps that window smaller than most
 incident response. Introspection would close it entirely, at the cost of a network round
@@ -26,8 +26,9 @@ obtain a token without driving a browser. A deployed realm turns this off; the S
 the authorization code flow and never needs it.
 
 **The audience mapper is the point of `salary-api`.** Without it a token minted for any
-other client in this realm would validate here. The API checks `aud`, so it refuses one
-that was not issued for it.
+other client in this realm would validate here. The BFF checks `aud`, so it refuses one
+that was not issued for this application. The salary service never sees the token at all -
+it receives the decoded claims as headers and decides only whether the role is allowed.
 
 ## Test users
 
@@ -39,13 +40,39 @@ that was not issued for it.
 Local credentials for a local realm. They are not secrets, and nothing here is reused
 anywhere real.
 
+## Adding a user
+
+`--import-realm` runs only when the realm does not already exist, so editing the JSON
+does nothing to a realm that is already up. To add someone to a running realm:
+
+```bash
+cd devops
+python3 create_user.py anita --password s3cret --roles hr_manager \
+    --email anita@acme.test --first Anita --last Rao
+
+python3 create_user.py --list          # who exists, and with which roles
+```
+
+Idempotent on username: a second run updates the profile and resets the password rather
+than failing. Roles are checked against the realm *before* the user is written, so a
+misspelled `--roles` creates nothing - an account that authenticates and is refused by
+every endpoint looks like an application bug, not a typo.
+
+The script is standard library only and talks to the admin API, so it needs no
+virtualenv. For a user who should outlive `down -v`, add them to `realm-salary.json`
+as well.
+
 ## Getting a token by hand
 
 ```bash
 curl -s -X POST http://localhost:8080/realms/salary/protocol/openid-connect/token \
-  -d grant_type=password -d client_id=salary-spa \
+  -d grant_type=password -d client_id=salary-bff \
+  -d client_secret=local-dev-bff-secret-not-for-production \
   -d username=hr -d password=hr | jq -r .access_token
 ```
+
+`salary-bff` is a confidential client, so the secret is required even for this grant. It
+is the local-development secret committed in the realm JSON, not one that means anything.
 
 ## Redirect URIs
 

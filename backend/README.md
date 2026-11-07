@@ -36,14 +36,18 @@ Check it: <http://localhost:8000/health> (liveness) and
 <http://localhost:8000/docs>.
 
 Keycloak persists to its own `keycloak` database on the same Postgres server, created
-by `docker/postgres-init/` on first start. Separate database and separate role, so
-restoring payroll data cannot roll back accounts and the API's credentials cannot read
-the identity tables. See [`keycloak/README.md`](keycloak/README.md) for the realm, the
-test users, and how to get a token by hand.
+by `devops/postgres-init/` on first start. Separate database and separate role, so
+restoring payroll data cannot roll back accounts. See
+[`devops/keycloak/README.md`](../devops/keycloak/README.md) for the realm, the test
+users, how to add one, and how to get a token by hand.
+
+Identity is not this service's concern and nothing about it lives here - no realm, no
+client, no password. It is all under `devops/`, with the rest of the infrastructure.
 
 Configuration is read from the environment — copy `.env.example` to `.env`. There is no
-JWT signing secret: authentication is delegated to Keycloak, so this service validates
-tokens and never issues one.
+JWT signing secret and no OIDC configuration: this service never sees a token. The BFF
+verifies one on every request and forwards the decoded claims as headers, so all this
+service decides is whether the role is allowed.
 
 ## Tests
 
