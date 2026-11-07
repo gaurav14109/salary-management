@@ -1,0 +1,101 @@
+name: Backend CI
+
+# Runs when the backend or the migrations change. A docs-only or frontend-only push
+# skips it.
+#
+# devops/** is in the filter because the migrations live there now. Without it, a
+# push that only touches a DDL file would not run the suite that proves the DDL
+# works - the one change that most needs it.
+#
+# The trade this accepts: a backend change that alters a response shape breaks the
+# frontend without the frontend suite running. Contract changes therefore need both
+# sides in one commit, which is the right habit anyway - a commit that breaks its
+# caller is not a complete commit.
+on:
+  push:
+    paths:
+      - "backend/**"
+      - "devops/**"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - "devops/**"
+      - ".github/workflows/backend-ci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: ruff + pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      # Present before the schema exists, so Stage 3 needs no CI change.
+      # The health check is what makes "started" mean "accepting connections":
+      # Postgres briefly listens during init and then restarts.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: salary
+          POSTGRES_PASSWORD: salary
+          POSTGRES_DB: salary
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U salary -d salary"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+psycopg://salary:salary@localhost:5432/salary
+      OIDC_ISSUER: http://localhost:8080/realms/salary
+      OIDC_AUDIENCE: salary-api
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      # A clean install, not a warm venv. This is the step that catches a
+      # dependency someone installed locally and forgot to declare.
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format check
+        run: ruff format --check .
+
+      # devops/ has its own ruff config: it is outside backend/pyproject.toml, so
+      # `ruff check .` above does not reach the migrations.
+      - name: Lint migrations
+        working-directory: devops
+        run: ruff check . && ruff format --check .
+
+      # The suite builds the schema itself through a session fixture, but running the
+      # migration here first turns a broken DDL file into its own red step rather
+      # than a confusing fixture error.
+      - name: Migrate
+        working-directory: devops
+        run: alembic upgrade head
+
+      # A migration that cannot be undone is a migration nobody will dare run on a
+      # database that matters. Cheaper to prove it here than to find out later.
+      - name: Migration is reversible
+        working-directory: devops
+        run: alembic downgrade base && alembic upgrade head
+
+      - name: Test
+        run: pytest -v

@@ -1,0 +1,31 @@
+[project]
+name = "salary-bff"
+version = "0.1.0"
+description = "Backend-for-frontend: the only thing the browser talks to."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "httpx>=0.28",
+    "cryptography>=44.0",
+    "itsdangerous>=2.2",
+    "pyjwt[crypto]>=2.10",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "respx>=0.22", "ruff>=0.8", "freezegun>=1.5"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Cookie", "fastapi.Header"]

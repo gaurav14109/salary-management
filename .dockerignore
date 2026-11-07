@@ -1,0 +1,27 @@
+# The salary API builds from the repository root, so this file governs what the
+# daemon is handed. Everything not needed to build or migrate stays out.
+.git/
+.github/
+
+frontend/
+bff/
+docs/
+*.docx
+*.png
+
+**/.venv/
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+
+# Secrets. A build context is readable by anything that can read the image.
+**/.env
+!**/.env.example
+
+backend/tests/
+**/README.md
+**/Dockerfile
+.dockerignore

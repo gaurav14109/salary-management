@@ -1,0 +1,188 @@
+# The local stack, run from this directory: `docker compose up -d`.
+#
+# Paths are relative to devops/, so the two source trees are referenced as ../backend
+# and ../bff. Keeping the file here rather than inside backend/ reflects what it
+# actually is: it composes the whole system, not one service's dependencies.
+#
+# The project name is pinned. Compose otherwise derives it from the directory, so
+# moving this file would rename every volume - which looks like the database
+# silently emptying itself, Keycloak accounts and all.
+name: salary
+
+services:
+  db:
+    image: postgres:16
+    container_name: salary-db
+    environment:
+      POSTGRES_USER: salary
+      POSTGRES_PASSWORD: salary
+      POSTGRES_DB: salary
+    ports:
+      - "5432:5432"
+    volumes:
+      - salary-pgdata:/var/lib/postgresql/data
+      # Runs once on an empty volume: creates Keycloak's separate database and role.
+      - ../backend/docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # Postgres briefly accepts connections during init and then restarts.
+      # Two consecutive successes is what makes "up" mean ready.
+      test: ["CMD-SHELL", "pg_isready -U salary -d salary"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: salary-keycloak
+    command: ["start-dev", "--import-realm"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+
+      # Persist to Postgres, not the embedded H2 store. H2 is dev-only by
+      # Keycloak's own documentation, and it loses every account the moment the
+      # container is removed - including anything created in the admin console,
+      # which the realm import cannot bring back.
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+
+      # Pin the advertised hostname. Without this, Keycloak answers with whatever
+      # Host header it was asked on, so a token minted for a browser at
+      # localhost:8080 and one minted for a call from keycloak:8080 carry different
+      # `iss` values - and the second fails verification. Pinning it makes `iss`
+      # one fixed string; the BFF handles its own address separately, via
+      # OIDC_INTERNAL_ISSUER below.
+      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "false"
+
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8080:8080"
+    volumes:
+      # Realm exported to JSON and committed, so a fresh clone gets the same
+      # clients, roles and test users instead of a README full of click-through steps.
+      - ../backend/keycloak/realm-salary.json:/opt/keycloak/data/import/realm-salary.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-shot. Runs to completion, then exits; the API waits on that exit code
+  # rather than racing it.
+  migrate:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      # A separate target, not a separate Dockerfile: same source tree and the same
+      # resolved dependencies, so the schema and the code that queries it cannot be
+      # built from different versions. The API's own image carries neither alembic
+      # nor the DDL.
+      target: migrator
+    image: salary-migrate:dev
+    container_name: salary-migrate
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://salary:salary@db:5432/salary
+    restart: "no"
+
+  api:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      target: runtime
+    image: salary-api:dev
+    container_name: salary-api
+    depends_on:
+      migrate:
+        # Not service_started. The readiness probe queries current_salary, so an
+        # API started before the migration fails every check until it gives up.
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql+psycopg://salary:salary@db:5432/salary
+
+      # This service validates tokens and never issues one, so it needs the issuer
+      # and the audience and no secret of any kind. Authorization is its job;
+      # authentication was already settled at the BFF.
+      OIDC_ISSUER: http://localhost:8080/realms/salary
+      OIDC_AUDIENCE: salary-api
+    ports:
+      # Published for local inspection only. Nothing in the frontend addresses
+      # :8000 — the browser reaches this service through the BFF or not at all.
+      - "8000:8000"
+
+  bff:
+    build:
+      context: ../bff
+    container_name: salary-bff
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    environment:
+      # What the browser is sent to, and what every token must claim as `iss`.
+      OIDC_ISSUER: http://localhost:8080/realms/salary
+      # What this container can actually reach. The BFF rewrites the token, logout
+      # and JWKS URLs to this origin and leaves the authorization URL public.
+      OIDC_INTERNAL_ISSUER: http://keycloak:8080/realms/salary
+
+      OIDC_CLIENT_ID: salary-bff
+      # Dev only, and it matches the committed realm export. A deployed stack reads
+      # this from a secret store; an image must never carry it.
+      OIDC_CLIENT_SECRET: local-dev-bff-secret-not-for-production
+
+      # The origin the browser uses, which is the web container's, not this
+      # service's own. Everything the browser touches - the SPA, /api, /auth and
+      # the OIDC callback - is then one origin, with nginx proxying /auth back
+      # here. Point this at :8001 and the login round-trip leaves that origin and
+      # comes back, which works on localhost only because cookies ignore port.
+      #
+      # Must match a redirectUris entry in the realm: the BFF sends this value to
+      # Keycloak as redirect_uri and Keycloak refuses anything unregistered.
+      BFF_BASE_URL: http://localhost:5173
+      SPA_BASE_URL: http://localhost:5173
+
+      # Upstreams by service name, on the compose network. Neither is published to
+      # the browser; the BFF is the only way in.
+      SALARY_API_URL: http://api:8000
+      # Not built yet, and deliberately still on the host: a P1 service that is
+      # absent must not stop the stack from starting.
+      CHAT_SERVICE_URL: http://host.docker.internal:8002
+
+      # Dev key, committed on purpose so a fresh clone starts. Rotating it logs
+      # everyone out, which is the correct behaviour: old cookies stop decoding.
+      SESSION_SECRET: 6gXrC0gEwIJL8asC9ifwYE-XougVQpp8h_GBe2Z2HxI=
+
+      # The stack is served over plain HTTP locally. Set true anywhere with TLS, or
+      # the session cookie travels in clear text.
+      COOKIE_SECURE: "false"
+    extra_hosts:
+      # Linux does not provide this name by default; Docker Desktop does.
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8001:8001"
+
+  web:
+    build:
+      context: ../frontend
+    image: salary-web:dev
+    container_name: salary-web
+    depends_on:
+      bff:
+        condition: service_healthy
+    ports:
+      # The only address a user types. nginx serves the built SPA and proxies
+      # /api and /auth to the BFF, so the whole app is same-origin and the session
+      # cookie travels without CORS.
+      - "5173:80"
+
+volumes:
+  salary-pgdata:

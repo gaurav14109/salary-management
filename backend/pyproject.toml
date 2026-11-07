@@ -1,0 +1,52 @@
+[project]
+name = "salary-management"
+version = "0.1.0"
+description = "Employee salary management for ACME: 10,000 employees, multiple countries"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+]
+
+[project.optional-dependencies]
+# Alembic is not a runtime dependency: the API never imports it. Keeping it out of
+# the base set is what lets the API image ship without the migration tool, so a
+# compromised API process has no migration tool to run.
+migrations = ["alembic>=1.14"]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.28",
+    "ruff>=0.8",
+    # The suite builds its schema by running the migrations, so it needs the tool.
+    "alembic>=1.14",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["perf: performance tests, excluded from the default run"]
+addopts = "-m 'not perf'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# B008 flags function calls in argument defaults, which is correct in general and
+# wrong for FastAPI: Depends/Query/Path in a default IS the dependency-injection
+# mechanism, evaluated per request rather than once at import.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.File",
+    "fastapi.Form",
+]

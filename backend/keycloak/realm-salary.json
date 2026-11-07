@@ -1,0 +1,105 @@
+{
+  "realm": "salary",
+  "enabled": true,
+  "displayName": "ACME Salary Management",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "bruteForceProtected": true,
+  "failureFactor": 10,
+  "waitIncrementSeconds": 60,
+  "roles": {
+    "realm": [
+      {
+        "name": "admin",
+        "description": "Manages users, FX rates and reference data."
+      },
+      {
+        "name": "hr_manager",
+        "description": "Manages employee and salary data."
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "salary-bff",
+      "name": "Salary Management BFF",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "local-dev-bff-secret-not-for-production",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:5173/auth/callback",
+        "http://localhost:8001/auth/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:5173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "salary-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "salary-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "salary-api",
+      "name": "Salary Management API",
+      "enabled": true,
+      "publicClient": false,
+      "bearerOnly": true
+    }
+  ],
+  "users": [
+    {
+      "username": "hr",
+      "email": "hr@acme.test",
+      "firstName": "Priya",
+      "lastName": "Sharma",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "hr",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "hr_manager"
+      ]
+    },
+    {
+      "username": "admin-user",
+      "email": "admin@acme.test",
+      "firstName": "Rahul",
+      "lastName": "Mehta",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "admin",
+        "hr_manager"
+      ]
+    }
+  ]
+}

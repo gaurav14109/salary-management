@@ -1,0 +1,54 @@
+name: Frontend CI
+
+# Runs only when the frontend changes. A docs-only or backend-only push skips it.
+on:
+  push:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: lint + typecheck + vitest + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # npm ci, not npm install: it installs exactly the lockfile and fails if
+      # package.json and the lockfile disagree, rather than quietly resolving.
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test:run
+
+      # `typecheck` runs tsc on tsconfig.app.json only, which excludes vite.config.ts.
+      # The production build runs `tsc -b` across every project, and that is what
+      # caught a config file that had never compiled. Without this step the only
+      # thing that builds the app is the Docker image, which CI does not build.
+      - name: Build
+        run: npm run build

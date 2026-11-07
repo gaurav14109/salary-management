@@ -1,0 +1,7 @@
+# The migrations moved out of backend/ and left that pyproject's ruff config behind.
+# Same rules here, so the same mistakes are caught on either side of the boundary.
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "UP", "B"]

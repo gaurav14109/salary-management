@@ -1,0 +1,18 @@
+# Secrets first: .env holds the Keycloak client secret and the session key.
+# A build context is readable by anything that can read the image.
+.env
+.env.*
+!.env.example
+
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+tests/
+README.md
+Dockerfile
+.dockerignore
