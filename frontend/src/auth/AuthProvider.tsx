@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { ApiError, api } from '../api/client'
+import { onSessionExpired } from '../api/session'
 import { AuthContext, type AuthState } from './AuthContext'
 
 type MeResponse = { authenticated: true; username: string; email: string | null; roles: string[] }
@@ -46,12 +47,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [check])
 
   const login = useCallback(() => {
-    const returnTo = window.location.pathname + window.location.search
     const loginUrl = state.status === 'anonymous' ? state.loginUrl : '/auth/login'
-    // A whole-window navigation, not a fetch: the browser has to follow the
-    // redirect to Keycloak and come back with a cookie.
-    window.location.assign(`${loginUrl}?return_to=${encodeURIComponent(returnTo)}`)
+    redirectToLogin(loginUrl)
   }, [state])
+
+  // Already navigating. A dashboard fires several queries at once, so one expired
+  // session produces several 401s and several announcements; without this they
+  // become several navigations racing each other.
+  const redirecting = useRef(false)
+
+  useEffect(
+    () =>
+      onSessionExpired((loginUrl) => {
+        if (redirecting.current) return
+        redirecting.current = true
+        // Recorded as well as acted on: the redirect is a whole-page navigation that
+        // takes a moment, and in that moment the tree should render "redirecting"
+        // rather than the stale authenticated view.
+        setState({ status: 'anonymous', loginUrl })
+        redirectToLogin(loginUrl)
+      }),
+    [],
+  )
 
   const logout = useCallback(async () => {
     try {
@@ -71,4 +88,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   )
+}
+
+/**
+ * A whole-window navigation, not a fetch: the browser has to follow the redirect to
+ * Keycloak and come back with a cookie. `return_to` is where the user was, so signing
+ * in again puts them back on the page they were reading rather than on the dashboard.
+ */
+function redirectToLogin(loginUrl: string): void {
+  const returnTo = window.location.pathname + window.location.search
+  window.location.assign(`${loginUrl}?return_to=${encodeURIComponent(returnTo)}`)
 }

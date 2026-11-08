@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../api/client'
+import { notifySessionExpired } from '../api/session'
 import { AuthProvider } from './AuthProvider'
 import { useAuth } from './useAuth'
 
@@ -81,5 +82,72 @@ describe('AuthProvider', () => {
     expect(assign).toHaveBeenCalledWith(
       '/auth/login?return_to=' + encodeURIComponent('/employees?country=IN'),
     )
+  })
+})
+
+describe('a session that expires while the app is open', () => {
+  /* The startup 401 is covered above. This is the one that happens to a person: they
+     leave the dashboard open over lunch, come back, click something, and the BFF
+     answers 401 to a request the auth layer never made. Without this the page shows
+     "Session expired" as an error and there is no way forward from it. */
+
+  function signedIn() {
+    get.mockResolvedValue({
+      authenticated: true,
+      username: 'hr',
+      email: 'hr@acme.test',
+      roles: ['hr_manager'],
+    })
+  }
+
+  function stubLocation() {
+    const assign = vi.fn()
+    Object.defineProperty(window, 'location', {
+      value: { assign, pathname: '/employees', search: '?country=IN', reload: vi.fn() },
+      writable: true,
+    })
+    return assign
+  }
+
+  it('drops an authenticated user back to anonymous', async () => {
+    signedIn()
+    stubLocation()
+    renderAuth()
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))
+
+    notifySessionExpired('/auth/login')
+
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('anonymous'))
+  })
+
+  it('sends the browser to sign in, carrying the page they were on', async () => {
+    signedIn()
+    const assign = stubLocation()
+    renderAuth()
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))
+
+    notifySessionExpired('/auth/login')
+
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith(
+        '/auth/login?return_to=' + encodeURIComponent('/employees?country=IN'),
+      ),
+    )
+  })
+
+  it('redirects once, however many requests failed together', async () => {
+    /* A dashboard fires several queries at once. Every one of them 401s and every one
+       announces it; navigating per announcement is several redirects racing. */
+    signedIn()
+    const assign = stubLocation()
+    renderAuth()
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))
+
+    notifySessionExpired('/auth/login')
+    notifySessionExpired('/auth/login')
+    notifySessionExpired('/auth/login')
+
+    await waitFor(() => expect(assign).toHaveBeenCalled())
+    expect(assign).toHaveBeenCalledTimes(1)
   })
 })
