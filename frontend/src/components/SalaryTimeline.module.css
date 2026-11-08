@@ -1,0 +1,66 @@
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.entry {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: var(--space-3);
+  padding-bottom: var(--space-5);
+}
+
+/* The spine. Drawn on every entry but the last, so the line stops at the oldest
+   change rather than trailing into nothing. */
+.entry:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 20px;
+  bottom: 0;
+  width: 1px;
+  background: var(--c-border-strong);
+}
+
+.marker {
+  width: 10px;
+  height: 10px;
+  margin-top: var(--space-1);
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--c-surface);
+  border: 2px solid var(--c-border-strong);
+}
+
+/* The row in force is the one people look for first. */
+.markerCurrent {
+  background: var(--c-brand);
+  border-color: var(--c-brand);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.headline {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.range {
+  font-size: var(--text-sm);
+  color: var(--c-text-muted);
+}
+
+.meta {
+  font-size: var(--text-xs);
+  color: var(--c-text-faint);
+}
