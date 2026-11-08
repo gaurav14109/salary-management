@@ -1,0 +1,164 @@
+/**
+ * Utility classes.
+ *
+ * Every rule here reads a token from tokens.css and never a literal. A component
+ * writes `className="u-money"`, not a style prop with a font family in it - so the
+ * day money should be slightly larger, it is one rule, not forty JSX edits.
+ *
+ * Deliberately small. This is not a utility framework: it covers the handful of
+ * patterns this application repeats. Anything used once belongs in that component's
+ * own CSS module.
+ */
+
+/* ── layout ─────────────────────────────────────────────────────────────────── */
+
+.u-page {
+  padding: var(--space-5);
+  max-width: var(--layout-max-w);
+  margin-inline: auto;
+}
+
+.u-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.u-stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.u-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.u-row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.u-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding-block: var(--space-3);
+}
+
+/* ── surfaces ───────────────────────────────────────────────────────────────── */
+
+.u-card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+}
+
+/* Written out rather than `composes: u-card` - that is a CSS Modules feature and is
+   silently ignored in a plain stylesheet, which would have left this class with
+   padding and nothing else. */
+.u-card-tight {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.u-sunken {
+  background: var(--c-surface-sunken);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+/* ── type ───────────────────────────────────────────────────────────────────── */
+
+.u-title {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-strong);
+  line-height: var(--leading-tight);
+  color: var(--c-text);
+  margin: 0;
+}
+
+.u-section-title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--c-text);
+  margin: 0;
+}
+
+.u-label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--c-text-faint);
+}
+
+.u-muted {
+  font-size: var(--text-sm);
+  color: var(--c-text-muted);
+}
+
+.u-faint {
+  font-size: var(--text-xs);
+  color: var(--c-text-faint);
+}
+
+/* ── money ──────────────────────────────────────────────────────────────────── */
+
+/* Tabular figures. Without them a column of salaries is ragged, and comparing two
+   numbers down the page means reading rather than glancing. */
+.u-money {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  font-weight: var(--weight-semibold);
+  color: var(--c-text);
+  white-space: nowrap;
+}
+
+/* The local amount, under the USD figure. Secondary by size and colour, not by
+   being hidden: it is what the person is actually paid. */
+.u-money-secondary {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  font-size: var(--text-xs);
+  color: var(--c-text-muted);
+  white-space: nowrap;
+}
+
+.u-money-large {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-strong);
+  color: var(--c-text);
+  line-height: var(--leading-tight);
+}
+
+/* ── states ─────────────────────────────────────────────────────────────────── */
+
+/* An empty cell that is a job to do, not an absence. A new hire with no pay row is
+   exactly who this list is used to find. */
+.u-missing {
+  font-size: var(--text-sm);
+  color: var(--c-brand);
+  cursor: pointer;
+}
+
+.u-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-5);
+  color: var(--c-text-muted);
+  text-align: center;
+}
