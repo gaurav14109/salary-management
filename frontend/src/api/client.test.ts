@@ -116,3 +116,65 @@ describe('api client', () => {
     expect(error.status).toBe(0)
   })
 })
+
+describe('patch', () => {
+  it('sends PATCH with the CSRF header, like every other mutation', async () => {
+    document.cookie = 'salary_csrf=tok-patch'
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ job_title: 'Senior Engineer' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.patch('/api/employees/1', { job_title: 'Senior Engineer' })
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init.method).toBe('PATCH')
+    expect(init.headers['X-CSRF-Token']).toBe('tok-patch')
+    expect(init.credentials).toBe('include')
+  })
+
+  it('sends only the fields given, so a partial edit stays partial', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.patch('/api/employees/1', { job_title: 'X' })
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ job_title: 'X' })
+  })
+})
+
+describe('upload', () => {
+  it('sends the file as multipart without setting Content-Type itself', async () => {
+    // The browser must set it, because only the browser knows the multipart boundary.
+    // Setting it by hand produces a body the server cannot parse.
+    document.cookie = 'salary_csrf=tok-upload'
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"id":1}', { status: 201 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.upload('/api/imports', new File(['a,b'], 'people.csv', { type: 'text/csv' }))
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init.method).toBe('POST')
+    expect(init.body).toBeInstanceOf(FormData)
+    expect(init.headers['Content-Type']).toBeUndefined()
+    expect(init.headers['X-CSRF-Token']).toBe('tok-upload')
+    expect(init.credentials).toBe('include')
+  })
+
+  it('normalises a refusal the same way every other call does', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: 'That file is too large.' }), { status: 413 }),
+      ),
+    )
+
+    await expect(api.upload('/api/imports', new File([''], 'big.csv'))).rejects.toMatchObject({
+      status: 413,
+      message: 'That file is too large.',
+    })
+  })
+})

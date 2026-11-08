@@ -6,6 +6,8 @@
  * steal, only a session it can use while the page is open.
  */
 
+import { DEFAULT_LOGIN_URL, notifySessionExpired } from './session'
+
 export class ApiError extends Error {
   readonly status: number
   readonly fieldErrors: Record<string, string>
@@ -84,7 +86,11 @@ async function toApiError(response: Response): Promise<ApiError> {
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {}
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  // FormData carries its own Content-Type, including a boundary only the browser
+  // knows. Setting the header by hand produces a body the server cannot parse, and
+  // the error it returns says nothing about why.
+  const isForm = body instanceof FormData
+  if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json'
 
   if (UNSAFE_METHODS.has(method)) {
     const token = csrfToken()
@@ -98,7 +104,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     response = await fetch(path, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
       // Without this the session cookie is not sent and every call is anonymous.
       credentials: 'include',
       // The BFF answers 401 with login_url instead of redirecting, precisely so this
@@ -110,7 +116,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     throw new ApiError(0, 'Could not reach the server')
   }
 
-  if (!response.ok) throw await toApiError(response)
+  if (!response.ok) {
+    const error = await toApiError(response)
+    // A 401 from *any* call means the session is gone, not just from /auth/me.
+    // Announced here, at the one place every request passes through, so no caller
+    // has to remember to handle it - and a page added later inherits the behaviour.
+    // Only 401: a 403 is a role problem, and bouncing someone to Keycloak for
+    // trying an admin action would log them out for doing nothing wrong and return
+    // them to the same refusal.
+    if (response.status === 401) notifySessionExpired(error.loginUrl ?? DEFAULT_LOGIN_URL)
+    throw error
+  }
   if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
@@ -119,5 +135,20 @@ export const api = {
   get: <T,>(path: string) => request<T>('GET', path),
   post: <T,>(path: string, body?: unknown) => request<T>('POST', path, body ?? {}),
   put: <T,>(path: string, body?: unknown) => request<T>('PUT', path, body ?? {}),
+  /**
+   * Partial update. The body carries only the fields being changed - a PUT would
+   * send the whole record back and silently overwrite whatever moved since the form
+   * was loaded.
+   */
+  patch: <T,>(path: string, body: unknown) => request<T>('PATCH', path, body),
   delete: <T,>(path: string) => request<T>('DELETE', path),
+  /**
+   * Upload a file. Same session, same CSRF rule, same error normalisation as every
+   * other call - an upload is a mutation like any other.
+   */
+  upload: <T,>(path: string, file: File, field = 'file') => {
+    const form = new FormData()
+    form.append(field, file)
+    return request<T>('POST', path, form)
+  },
 }
