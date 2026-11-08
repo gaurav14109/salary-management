@@ -1,0 +1,70 @@
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: var(--space-4);
+}
+
+/* Two per row, not "as many as fit". auto-fit gave three on a wide screen, and a
+   bar chart one third of a viewport wide has its labels colliding - which is what
+   made the country axis show four of its nine names. */
+.panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+  align-items: stretch;
+}
+
+@media (max-width: 1000px) {
+  .panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* A column, so the chart keeps its height and the table takes what is left. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: var(--panel-height);
+  padding: var(--space-5);
+}
+
+/* min-height: 0 is load-bearing. A flex child defaults to min-content, so without
+   it the table expands the card instead of scrolling inside it, and the fixed
+   height above does nothing. */
+.panelBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: var(--space-3);
+}
+
+.chart {
+  flex: none;
+  margin-top: var(--space-4);
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* The bar sits behind the row rather than beside it: a table that is also a chart,
+   so the eye gets the ranking without a second component to load and label. */
+.barCell {
+  position: relative;
+  min-width: 120px;
+}
+
+.bar {
+  position: absolute;
+  inset: 0;
+  background: var(--c-brand-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.barValue {
+  position: relative;
+  padding: 0 var(--space-2);
+}
