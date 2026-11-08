@@ -70,3 +70,28 @@ describe('formatUsdAxis', () => {
     expect(formatUsdAxis(0)).toBe('$0')
   })
 })
+
+describe('formatUsdAxis is the same everywhere', () => {
+  /* The first version used Intl's compact notation, which is not stable across ICU
+     versions: the same call produced '\$800K' on one Node build and '\$800.0K' on
+     another, so this suite passed locally and failed in CI. These cases pin the
+     output rather than trusting whichever ICU the runner shipped with. */
+
+  it.each([
+    [0, '$0'],
+    [850, '$850'],
+    [999, '$999'],
+    [1000, '$1K'],
+    [38431.75, '$38.4K'],
+    [800000, '$800K'],
+    [2400000, '$2.4M'],
+    [1_000_000_000, '$1B'],
+    [-45000, '-$45K'],
+  ])('formats %p as %p', (input, expected) => {
+    expect(formatUsdAxis(input)).toBe(expected)
+  })
+
+  it('says nothing rather than NaN when handed one', () => {
+    expect(formatUsdAxis(Number.NaN)).toBe('—')
+  })
+})

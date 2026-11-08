@@ -71,16 +71,38 @@ export function formatDate(value: string | null | undefined): string {
  *
  * Deliberately not `formatUsd`: the two have different jobs, and a single function
  * with a `compact` flag would make every caller decide which one it meant.
+ *
+ * The scaling is done here rather than with `Intl`'s `notation: 'compact'`, which
+ * is not stable across ICU versions - the same call returned `$800K` on one Node
+ * build and `$800.0K` on another, so the test passed locally and failed in CI. An
+ * axis label is not worth a dependency on which ICU the runner shipped with.
  */
 export function formatUsdAxis(value: number): string {
   if (!Number.isFinite(value)) return '—'
-  // Below a thousand, compact notation renders "$0.9K" for 850, which is both
-  // longer and less clear than the number itself.
-  const compact = Math.abs(value) >= 1000
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    notation: compact ? 'compact' : 'standard',
-    maximumFractionDigits: compact ? 1 : 0,
-  }).format(value)
+
+  const sign = value < 0 ? '-' : ''
+  let scaled = Math.abs(value)
+  let unit = ''
+
+  for (const [threshold, suffix] of [
+    [1e9, 'B'],
+    [1e6, 'M'],
+    [1e3, 'K'],
+  ] as const) {
+    if (scaled >= threshold) {
+      scaled /= threshold
+      unit = suffix
+      break
+    }
+  }
+
+  // One decimal, and only when it says something: `$2.4M` is worth the character,
+  // `$800.0K` is not.
+  const rounded = unit === '' ? Math.round(scaled) : Math.round(scaled * 10) / 10
+  const digits = Number.isInteger(rounded) ? 0 : 1
+
+  return `${sign}$${rounded.toLocaleString('en-US', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}${unit}`
 }

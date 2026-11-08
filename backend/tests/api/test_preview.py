@@ -233,8 +233,7 @@ def test_preview_caps_the_rows_it_returns(api, monkeypatch):
     """
     monkeypatch.setattr("app.api.imports.PREVIEW_MAX_ROWS", 3)
     rows = [
-        ROW.replace("EMP-7001", f"EMP-{7000 + i:05d}").replace("anita@", f"a{i}@")
-        for i in range(5)
+        ROW.replace("EMP-7001", f"EMP-{7000 + i:05d}").replace("anita@", f"a{i}@") for i in range(5)
     ]
 
     body = preview_file(api, *rows).json()
