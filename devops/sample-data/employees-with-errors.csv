@@ -1,0 +1,11 @@
+employee_code,first_name,last_name,email,country_code,department,job_title,band,hire_date,amount,currency,effective_from
+ACME-1000,Priya,Sharma,priya.sharma@acme.test,IN,Engineering,Engineer,L3,2024-01-10,7572920.6,INR,2026-04-01
+ACME-1001,Arjun,Mehta,arjun.mehta@acme.test,US,Engineering,Director,L7,2023-01-14,283014.0,XYZ,2026-04-01
+ACME-1002,Mei,Chen,mei.chen@acme.test,GB,Sales,Analyst,L2,2024-07-10,37420.72,GBP,2026-04-01
+ACME-1003,Liam,O'Brien,liam.obrien@acme.test,DE,Product,Analyst,L2,01/04/2024,44386.32,EUR,2026-04-01
+ACME-1004,Sofia,Rossi,sofia.rossi@acme.test,SG,Data,Associate,L1,2025-01-14,-5000,SGD,2026-04-01
+ACME-1005,Omar,Haddad,omar.haddad@acme.test,ZZ,Customer Success,Staff Engineer,L5,2022-01-14,220932.0,AUD,2026-04-01
+ACME-1006,Hannah,Weber,hannah.weber@acme.test,CA,Teleportation,Director,L7,2024-03-14,338892.96,CAD,2026-04-01
+,Diego,Silva,diego.silva@acme.test,JP,Operations,Associate,L1,2025-03-10,5397344,JPY,2026-04-01
+ACME-1000,Yuki,Tanaka,yuki.tanaka@acme.test,BR,Finance,Staff Engineer,L5,2022-06-10,773680.2,BRL,2026-04-01
+ACME-1009,Noah,Andersen,noah.andersen@acme.test,AE,People,Staff Engineer,L5,2025-01-14,585925.34,AED,2026-04-01

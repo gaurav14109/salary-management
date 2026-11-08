@@ -1,0 +1,31 @@
+employee_code,first_name,last_name,email,country_code,department,job_title,band,hire_date,amount,currency,effective_from
+ACME-1000,Priya,Sharma,priya.sharma@acme.test,IN,Engineering,Engineer,L3,2024-01-10,7572920.6,INR,2026-04-01
+ACME-1001,Arjun,Mehta,arjun.mehta@acme.test,US,Engineering,Director,L7,2023-01-14,283014.0,USD,2026-04-01
+ACME-1002,Mei,Chen,mei.chen@acme.test,GB,Sales,Analyst,L2,2024-07-10,37420.72,GBP,2026-04-01
+ACME-1003,Liam,O'Brien,liam.obrien@acme.test,DE,Product,Analyst,L2,2024-01-14,44386.32,EUR,2026-04-01
+ACME-1004,Sofia,Rossi,sofia.rossi@acme.test,SG,Data,Associate,L1,2025-01-14,53195.32,SGD,2026-04-01
+ACME-1005,Omar,Haddad,omar.haddad@acme.test,AU,Customer Success,Staff Engineer,L5,2022-01-14,220932.0,AUD,2026-04-01
+ACME-1006,Hannah,Weber,hannah.weber@acme.test,CA,Marketing,Director,L7,2024-03-14,338892.96,CAD,2026-04-01
+ACME-1007,Diego,Silva,diego.silva@acme.test,JP,Operations,Associate,L1,2025-03-10,5397344,JPY,2026-04-01
+ACME-1008,Yuki,Tanaka,yuki.tanaka@acme.test,BR,Finance,Staff Engineer,L5,2022-06-10,773680.2,BRL,2026-04-01
+ACME-1009,Noah,Andersen,noah.andersen@acme.test,AE,People,Staff Engineer,L5,2025-01-14,585925.34,AED,2026-04-01
+ACME-1010,Amara,Okafor,amara.okafor@acme.test,IN,Engineering,Analyst,L2,2025-07-12,4584743.0,INR,2026-04-01
+ACME-1011,Lucas,Dubois,lucas.dubois@acme.test,US,Engineering,Senior Engineer,L4,2024-06-12,112823.0,USD,2026-04-01
+ACME-1012,Ines,Costa,ines.costa@acme.test,GB,Sales,Analyst,L2,2022-02-14,47287.03,GBP,2026-04-01
+ACME-1013,Tomas,Novak,tomas.novak@acme.test,DE,Product,Engineer,L3,2023-08-12,74155.68,EUR,2026-04-01
+ACME-1014,Zara,Khan,zara.khan@acme.test,SG,Data,Staff Engineer,L5,2021-09-13,229953.38,SGD,2026-04-01
+ACME-1015,Ethan,Walsh,ethan.walsh@acme.test,AU,Customer Success,Analyst,L2,2022-08-13,90047.84,AUD,2026-04-01
+ACME-1016,Nadia,Petrova,nadia.petrova@acme.test,CA,Marketing,Associate,L1,2021-09-14,54197.36,CAD,2026-04-01
+ACME-1017,Felix,Fischer,felix.fischer@acme.test,JP,Operations,Director,L7,2023-06-15,47042540,JPY,2026-04-01
+ACME-1018,Clara,Moreau,clara.moreau@acme.test,BR,Finance,Engineer,L3,2025-08-10,415433.2,BRL,2026-04-01
+ACME-1019,Ravi,Iyer,ravi.iyer@acme.test,AE,People,Director,L7,2023-08-15,902928.19,AED,2026-04-01
+ACME-1020,Grace,Nguyen,grace.nguyen@acme.test,IN,Engineering,Principal Engineer,L6,2023-08-12,14511871.55,INR,2026-04-01
+ACME-1021,Marco,Bianchi,marco.bianchi@acme.test,US,Engineering,Principal Engineer,L6,2023-01-13,193147.0,USD,2026-04-01
+ACME-1022,Leila,Nasser,leila.nasser@acme.test,GB,Sales,Engineer,L3,2021-08-10,56906.07,GBP,2026-04-01
+ACME-1023,Oscar,Lindgren,oscar.lindgren@acme.test,DE,Product,Analyst,L2,2022-04-13,54671.0,EUR,2026-04-01
+ACME-1024,Aisha,Rahman,aisha.rahman@acme.test,SG,Data,Senior Engineer,L4,2024-02-11,165830.36,SGD,2026-04-01
+ACME-1025,Daniel,Kim,daniel.kim@acme.test,AU,Customer Success,Senior Engineer,L4,2023-03-13,162266.08,AUD,2026-04-01
+ACME-1026,Elena,Garcia,elena.garcia@acme.test,CA,Marketing,Director,L7,2024-06-15,386536.48,CAD,2026-04-01
+ACME-1027,Tom,Baker,tom.baker@acme.test,JP,Operations,Senior Engineer,L4,2022-02-11,18890855,JPY,2026-04-01
+ACME-1028,Nina,Kowalski,nina.kowalski@acme.test,BR,Finance,Analyst,L2,2022-01-13,255413.85,BRL,2026-04-01
+ACME-1029,Pablo,Reyes,pablo.reyes@acme.test,AE,People,Director,L7,2023-05-10,1055792.33,AED,2026-04-01

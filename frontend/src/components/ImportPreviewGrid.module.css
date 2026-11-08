@@ -1,0 +1,52 @@
+/* The grid scrolls in both directions inside a fixed box. A twelve-column file is
+   wider than any screen, and 500 rows is taller than one - without this the page
+   grows to the size of the spreadsheet and the Import button ends up below it. */
+.scroll {
+  max-height: var(--preview-grid-height);
+  overflow: auto;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  background: var(--c-surface);
+}
+
+/* Opaque, and it has to stay that way: rows scroll underneath, so any transparency
+   here shows them through the column names. */
+.head th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--c-surface-sunken);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--c-text-muted);
+  white-space: nowrap;
+}
+
+.grid td {
+  vertical-align: top;
+  padding: var(--space-1) var(--space-2);
+}
+
+/* The line number is the one thing a user matches against their own spreadsheet,
+   so it stays put while the columns scroll sideways. */
+.lineColumn {
+  position: sticky;
+  left: 0;
+  background: var(--c-surface);
+  text-align: right;
+  width: 1%;
+  white-space: nowrap;
+}
+
+.grid thead .lineColumn {
+  background: var(--c-surface-sunken);
+  z-index: 2;
+}
+
+/* The spacer rows that stand in for everything not currently rendered. No padding,
+   no border - they are scroll height and nothing else. */
+.grid tbody tr[aria-hidden] td {
+  padding: 0;
+  border: none;
+}
