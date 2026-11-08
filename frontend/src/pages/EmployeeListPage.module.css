@@ -1,0 +1,55 @@
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.search {
+  min-width: 260px;
+}
+
+.tableWrap {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+/* The row is a link target. Making the whole row clickable and still having a real
+   <a> inside is what keeps middle-click, ctrl-click and the status bar working - a
+   row with an onClick handler and no href breaks all three. */
+.row {
+  cursor: pointer;
+}
+
+.name {
+  color: var(--c-text);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+}
+
+.name:hover {
+  color: var(--c-brand);
+}
+
+.numeric {
+  text-align: right;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--c-border);
+}
