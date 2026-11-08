@@ -13,6 +13,42 @@ instructions.
 | `salary-bff` | confidential client, authorization code + PKCE (S256). The secret lives in the BFF, never in the browser |
 | `salary-api` | bearer-only. Exists so tokens carry `aud=salary-api` |
 
+## `sslRequired: none` — local only, and it must not ship
+
+Keycloak defaults a realm to `sslRequired: external`: plain HTTP is allowed from
+private and loopback addresses, and refused from anything else with **"HTTPS
+required"**.
+
+That default bites locally the moment Keycloak stops seeing your browser as
+loopback. It reads the client address from `X-Forwarded-For` when proxy headers are
+trusted, so a VPN, a corporate proxy or an extension that rewrites the header turns
+`http://localhost:8080` into a request from a public IP:
+
+```
+type="LOGIN_ERROR" realmName="salary" ipAddress="151.101.0.223" error="ssl_required"
+```
+
+Two changes, together:
+
+* `sslRequired: none` in this file, so a fresh import can log in over HTTP;
+* `KC_PROXY_HEADERS: ""` in `docker-compose.yml`, so Keycloak stops believing a
+  forwarded address over the real one.
+
+**A deployed realm sets this back to `external` and terminates TLS in front of
+Keycloak.** `none` means tokens, passwords and the session cookie cross the network
+in clear text. It is correct on a laptop and indefensible anywhere else.
+
+To change it on a realm that is already running — the admin API refuses over HTTP
+for the same reason, so it has to be done from inside the container, where the
+connection really is loopback:
+
+```bash
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh config credentials \
+  --server http://localhost:8080 --realm master --user admin --password admin
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update realms/salary -s sslRequired=NONE
+docker compose exec keycloak /opt/keycloak/bin/kcadm.sh update realms/master -s sslRequired=NONE
+```
+
 ## Two settings that look odd and are deliberate
 
 **`accessTokenLifespan: 300`.** The BFF validates tokens against Keycloak's cached public

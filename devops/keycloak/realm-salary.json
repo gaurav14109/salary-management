@@ -2,6 +2,7 @@
   "realm": "salary",
   "enabled": true,
   "displayName": "ACME Salary Management",
+  "sslRequired": "none",
   "accessTokenLifespan": 300,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,

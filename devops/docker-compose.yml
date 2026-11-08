@@ -61,6 +61,13 @@ services:
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "false"
 
       KC_HEALTH_ENABLED: "true"
+
+      # KC_PROXY_HEADERS is deliberately absent, not empty - an empty value is
+      # rejected at startup. Absent means Keycloak ignores X-Forwarded-For and uses
+      # the real peer address, which is what we want: nothing sits in front of it
+      # here, and trusting a forwarded address lets a proxy or VPN make a loopback
+      # request look like it came from a public IP. The realm's sslRequired then
+      # refuses it as "HTTPS required", which reads as a Keycloak bug and is not.
     ports:
       - "8080:8080"
     volumes:
