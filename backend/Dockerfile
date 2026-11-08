@@ -16,19 +16,28 @@
 # adds alembic on top of the same resolved set.
 FROM python:3.12-slim AS builder
 
+# Wheels come over the Docker VM's network, which is slower and flakier than the
+# host's. pip's 15s default read timeout turns one slow wheel into a failed build
+# via five restarts; waiting is cheaper than starting over.
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_DEFAULT_TIMEOUT=120 \
+    PIP_RETRIES=10
 
 WORKDIR /build
 
 # Dependencies resolve from pyproject alone, so copy it first: application code
 # changes on every commit, dependencies rarely.
 COPY backend/pyproject.toml ./
-RUN mkdir -p app && touch app/__init__.py \
+# The cache mount is the difference between one download and two. Both venvs
+# resolve the same dependency set - the migrator adds alembic on top of it - so
+# without a shared pip cache the second install fetches every wheel again. The
+# mount is build-time only: nothing of it lands in either image.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    mkdir -p app && touch app/__init__.py \
  && python -m venv /opt/venv \
- && /opt/venv/bin/pip install --no-cache-dir . \
+ && /opt/venv/bin/pip install . \
  && python -m venv /opt/venv-migrate \
- && /opt/venv-migrate/bin/pip install --no-cache-dir ".[migrations]"
+ && /opt/venv-migrate/bin/pip install ".[migrations]"
 
 # ── shared runtime base ─────────────────────────────────────────────────────
 FROM python:3.12-slim AS base

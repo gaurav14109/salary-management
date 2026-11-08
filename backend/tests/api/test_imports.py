@@ -7,6 +7,7 @@ attempt", which is a different and worse thing.
 """
 
 import io
+import logging
 from datetime import date
 from decimal import Decimal
 
@@ -203,3 +204,37 @@ def test_the_history_is_a_page_newest_first(api):
     assert set(body) == {"items", "total", "page", "size"}
     assert body["total"] == 2
     assert body["items"][0]["id"] > body["items"][1]["id"]
+
+
+# --- logging ---------------------------------------------------------------------
+
+
+def test_a_successful_upload_logs_without_blowing_up(api, caplog):
+    """A log line must not be able to fail the request it is describing.
+
+    `logging` refuses to let `extra=` overwrite a LogRecord's own attributes and
+    raises KeyError when it is asked to - and `filename`, the obvious name for the
+    file someone uploaded, is one of them. The failure is invisible below INFO,
+    because `Logger.info` returns before building the record, which is why the rest
+    of this file passed while the container returned 500 on every upload.
+
+    Hence `caplog.set_level`: it is what makes the record actually get built.
+    """
+    with caplog.at_level(logging.INFO, logger="salary.imports"):
+        response = upload(api, ROW)
+
+    assert response.status_code == 201
+    assert any(record.message == "import_uploaded" for record in caplog.records)
+
+
+def test_the_upload_log_line_names_the_file(api, caplog):
+    """The filename is the one thing that identifies the attempt to the person who
+    made it. Dropping it to dodge the collision would trade a crash for a log nobody
+    can use."""
+    with caplog.at_level(logging.INFO, logger="salary.imports"):
+        upload(api, ROW, filename="october-payroll.csv")
+
+    logged = next(r for r in caplog.records if r.message == "import_uploaded")
+    assert logged.source_filename == "october-payroll.csv"
+    # LogRecord.filename stays what logging means by it: the module that logged.
+    assert logged.filename == "imports.py"

@@ -413,3 +413,104 @@ def test_no_failure_path_leaks_an_internal_detail(api):
 
     for leak in ("Traceback", "psycopg", "sqlalchemy", "salary.py"):
         assert leak not in body
+
+
+# --- what the salary history timeline needs -------------------------------------
+
+
+def test_history_says_when_each_change_was_made_not_only_when_it_applies(api, created):
+    """`effective_from` is when the pay starts. `created_at` is when someone decided
+    it. A timeline of changes needs the second: a raise entered in November and
+    backdated to April is one event in November, not an event in April."""
+    api.put(
+        f"/employees/{created}/salary",
+        json={"amount": "1200000.000", "currency": "INR", "effective_from": "2026-04-01"},
+        headers=headers(),
+    )
+
+    entry = api.get(f"/employees/{created}", headers=headers()).json()["history"][0]
+
+    assert "created_at" in entry
+    assert entry["created_at"].startswith("20")
+
+
+def test_history_names_who_made_the_change(api, created):
+    """ "Changed by user 47" is not an audit trail anyone can read. The timeline shows
+    a person."""
+    api.put(
+        f"/employees/{created}/salary",
+        json={"amount": "1200000.000", "currency": "INR", "effective_from": "2026-04-01"},
+        headers=headers(),
+    )
+
+    entry = api.get(f"/employees/{created}", headers=headers()).json()["history"][0]
+
+    assert entry["created_by_name"] == "rahul"
+
+
+def test_an_imported_row_shows_its_reason(api, created):
+    """NEW_HIRE, MERIT, IMPORT - the timeline reads as a story rather than a list of
+    numbers that changed for no stated reason."""
+    api.put(
+        f"/employees/{created}/salary",
+        json={
+            "amount": "1200000.000",
+            "currency": "INR",
+            "effective_from": "2026-04-01",
+            "change_reason": "NEW_HIRE",
+        },
+        headers=headers(),
+    )
+
+    entry = api.get(f"/employees/{created}", headers=headers()).json()["history"][0]
+
+    assert entry["change_reason"] == "NEW_HIRE"
+
+
+def test_history_is_newest_first_so_the_timeline_reads_downward(api, created):
+    for amount, start in (("1200000.000", "2026-04-01"), ("1400000.000", "2026-10-01")):
+        api.put(
+            f"/employees/{created}/salary",
+            json={"amount": amount, "currency": "INR", "effective_from": start},
+            headers=headers(),
+        )
+
+    history = api.get(f"/employees/{created}", headers=headers()).json()["history"]
+
+    assert [row["effective_from"] for row in history] == ["2026-10-01", "2026-04-01"]
+    assert history[0]["effective_to"] is None
+    assert history[1]["effective_to"] == "2026-09-30"
+
+
+def test_the_history_author_is_resolved_in_one_query_not_one_per_row(api, created, db):
+    """A twelve-year salary history is a dozen rows. Resolving the author per row
+    would make rendering one page a dozen round trips."""
+    from sqlalchemy import event
+
+    for amount, start in (
+        ("1200000.000", "2026-04-01"),
+        ("1300000.000", "2026-07-01"),
+        ("1400000.000", "2026-10-01"),
+    ):
+        api.put(
+            f"/employees/{created}/salary",
+            json={"amount": amount, "currency": "INR", "effective_from": start},
+            headers=headers(),
+        )
+
+    seen: list[str] = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        if "app_user" in statement.lower() and "select" in statement.lower():
+            seen.append(statement)
+
+    event.listen(db.bind, "before_cursor_execute", record)
+    try:
+        body = api.get(f"/employees/{created}", headers=headers()).json()
+    finally:
+        event.remove(db.bind, "before_cursor_execute", record)
+
+    assert len(body["history"]) == 3
+    assert all(row["created_by_name"] == "rahul" for row in body["history"])
+    # One lookup for the actor dependency, one for the names. Not one per row.
+    assert len(seen) <= 2, seen

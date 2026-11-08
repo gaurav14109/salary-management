@@ -189,11 +189,22 @@ def get_employee(employee_id: int, db: Session = Depends(get_db)) -> EmployeeDet
 
     history = salary_service.get_salary_history(db, employee_id)
     current = next((row for row in history if row.effective_to is None), None)
+    names = salary_service.actor_names(db, history)
+
+    def as_read(row) -> SalaryRead:
+        """Attach the author's name to the row the ORM gave us.
+
+        Resolved here rather than by a relationship on the model: the timeline is the
+        only reader that wants it, and a lazy-loaded `salary.author` would fire a
+        query per row from every other caller that happened to touch the attribute.
+        """
+        entry = SalaryRead.model_validate(row)
+        return entry.model_copy(update={"created_by_name": names.get(row.created_by)})
 
     return EmployeeDetail(
         employee=EmployeeRead.model_validate(person),
-        current_salary=SalaryRead.model_validate(current) if current else None,
-        history=[SalaryRead.model_validate(row) for row in history],
+        current_salary=as_read(current) if current else None,
+        history=[as_read(row) for row in history],
     )
 
 

@@ -18,11 +18,11 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 from app.errors import PayloadTooLarge, UnprocessableEntity
 from app.models import Employee, FxRate, Salary
-from app.services.importer import parse, run_import
+from app.services.importer import parse, run_import, validate
 
 HEADER = (
     "employee_code,first_name,last_name,email,country_code,department,job_title,"
@@ -336,3 +336,64 @@ def test_one_bad_row_in_ten_thousand_still_commits_nothing(db, actor_id, inr_rat
     assert job.status == "FAILED"
     assert job.errors[0]["row_number"] == 7_432  # header + zero-indexed
     assert db.query(Employee).filter(Employee.employee_code.like("EMP-9%")).count() == 0
+
+
+# --- the check the import makes and validation used not to ----------------------
+
+
+def valid_file(*rows: str) -> list:
+    return parse(io.BytesIO("\n".join([HEADER, *rows]).encode()), "x.csv")
+
+
+EARLY = "EMP-7801,A,B,b@acme.test,IN,Engineering,Engineer,L3,2019-04-01,1200000,INR,2019-06-01"
+
+
+def test_validation_rejects_a_salary_dated_before_any_fx_rate(db, actor_id, inr_rate):
+    """`validate` has to find every error the import would, or a preview lies.
+
+    The import catches MissingFxRate while applying a row and turns it into a row
+    error. Validation did not look at FX at all, so a file whose dates predate the
+    rates passed validation and failed on apply - survivable while the only caller
+    was the import itself, and not once a preview screen is telling somebody their
+    file is clean.
+    """
+    _, errors = validate(db, valid_file(EARLY))
+
+    assert [(e.field, e.message) for e in errors] == [
+        ("currency", "No FX rate for INR as of 2019-06-01.")
+    ]
+
+
+def test_validation_accepts_a_date_on_the_rate_itself(db, actor_id, inr_rate):
+    """`get_rate` takes the most recent rate on or before the date, so the rate's own
+    date is valid. An off-by-one here would reject the first day of every rate."""
+    on_the_day = EARLY.replace("2019-04-01", "2020-01-01").replace("2019-06-01", "2020-01-01")
+
+    _, errors = validate(db, valid_file(on_the_day))
+
+    assert errors == []
+
+
+def test_the_fx_check_costs_one_query_for_the_whole_file(db, actor_id, inr_rate):
+    """Per row would be a query per row - ten thousand round trips to read a table
+    with one row per currency."""
+    rows = valid_file(
+        *(
+            EARLY.replace("EMP-7801", f"EMP-79{i:03d}").replace("b@acme", f"b{i}@acme")
+            for i in range(50)
+        )
+    )
+
+    seen: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        seen.append(statement)
+
+    event.listen(db.bind, "before_cursor_execute", record)
+    try:
+        validate(db, rows)
+    finally:
+        event.remove(db.bind, "before_cursor_execute", record)
+
+    fx_queries = [s for s in seen if "fx_rate" in s.lower()]
+    assert len(fx_queries) <= 1, f"{len(fx_queries)} FX queries for 50 rows"

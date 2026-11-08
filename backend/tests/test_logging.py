@@ -5,10 +5,14 @@ gateway key in a log line is a credential in a log line - readable by anyone wit
 access, shipped to whatever aggregator the company uses, retained for years.
 """
 
+import ast
 import json
 import logging
+import pathlib
 
-from app.logging_setup import JsonFormatter, redact
+from app.logging_setup import _RESERVED, JsonFormatter, redact
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def record(message: str, **extra) -> logging.LogRecord:
@@ -69,3 +73,51 @@ def test_an_exception_is_formatted_into_the_record_not_lost():
         payload = json.loads(JsonFormatter().format(rec))
 
     assert "ValueError" in payload["exception"]
+
+
+# --- the whole class of bug, not just the one that escaped --------------------
+
+
+def test_no_log_call_passes_a_reserved_logrecord_key_in_extra():
+    """`extra={"filename": ...}` is a 500, and only in production.
+
+    `Logger.makeRecord` raises KeyError rather than let `extra=` shadow one of a
+    LogRecord's own attributes. `Logger.info` checks the level *before* building the
+    record, so below INFO the call is a silent no-op - which is how an upload
+    endpoint shipped returning 500 on every successful import while its tests stayed
+    green.
+
+    Scanned statically rather than caught at runtime, because catching it at runtime
+    requires a test to both exercise that exact line and have the logger enabled for
+    that exact level. This asserts the property everywhere at once, including on
+    code paths no test reaches: an error branch that logs is exactly where this bug
+    hides longest.
+    """
+    offenders = []
+    for path in sorted((ROOT / "app").rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.Call):
+                continue
+            for keyword in node.keywords:
+                if keyword.arg != "extra" or not isinstance(keyword.value, ast.Dict):
+                    continue
+                for key in keyword.value.keys:
+                    if isinstance(key, ast.Constant) and key.value in _RESERVED:
+                        offenders.append(f"{path.name}:{key.lineno} extra={{{key.value!r}: ...}}")
+
+    assert offenders == [], (
+        "These keys collide with LogRecord's own attributes and raise at INFO: "
+        + ", ".join(offenders)
+    )
+
+
+def test_the_guard_above_knows_the_names_logging_actually_reserves():
+    """A hand-written list of reserved names rots the moment CPython adds one.
+
+    Checked against a real LogRecord rather than trusted: if `_RESERVED` drifted out
+    of date, the test above would pass while the bug it exists to catch shipped.
+    """
+    actual = set(logging.LogRecord("n", logging.INFO, "p", 1, "m", None, None).__dict__)
+
+    missing = actual - _RESERVED - {"taskName"}  # taskName is 3.12+ and optional
+    assert missing == set(), f"logging reserves names the guard does not know about: {missing}"

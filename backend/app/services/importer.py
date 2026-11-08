@@ -31,7 +31,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.errors import PayloadTooLarge, SalaryError, UnprocessableEntity
-from app.models import Band, Country, Currency, Department, Employee, ImportJob
+from app.models import Band, Country, Currency, Department, Employee, FxRate, ImportJob
 from app.services import employee as employee_service
 from app.services import salary as salary_service
 
@@ -289,6 +289,18 @@ def _parse_row(row: RawRow, lookups: "_Lookups", errors: list[RowError]) -> Vali
         if band_id is None:
             errors.append(RowError(n, "band", f"Unknown band: {band_name}."))
 
+    # Only once both are known good: "no rate for (blank) as of None" helps nobody,
+    # and the currency and date errors above already say what is actually wrong.
+    if currency in lookups.currencies and effective_from is not None:
+        earliest = lookups.earliest_rate.get(currency)
+        if earliest is None or effective_from < earliest:
+            # Worded exactly as MissingFxRate words it, because the import raises
+            # that on the same condition. Two messages for one problem would read as
+            # two problems.
+            errors.append(
+                RowError(n, "currency", f"No FX rate for {currency} as of {effective_from}.")
+            )
+
     for required in ("first_name", "last_name", "job_title"):
         if not values.get(required):
             errors.append(RowError(n, required, "Required."))
@@ -363,6 +375,16 @@ class _Lookups:
         self.bands = {
             name.lower(): id_
             for id_, name in db.execute(select(Band.id, Band.name).where(Band.is_active))
+        }
+        # The earliest rate on file per currency. `fx.get_rate` takes the most recent
+        # rate on or before a date, so a salary effective before this one has no rate
+        # and cannot be converted. One grouped query rather than a lookup per row:
+        # fx_rate holds a handful of rows per currency and the file holds thousands.
+        self.earliest_rate = {
+            currency: as_of
+            for currency, as_of in db.execute(
+                select(FxRate.currency, func.min(FxRate.as_of)).group_by(FxRate.currency)
+            )
         }
 
 

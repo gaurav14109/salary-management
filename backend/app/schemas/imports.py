@@ -51,3 +51,39 @@ class ImportJobRead(BaseModel):
     errors: list[ImportRowError]
     created_by: int
     created_at: datetime
+
+
+class ImportPreviewRow(BaseModel):
+    """One line of the file, still as text.
+
+    Values stay strings on the way out as well as in. The grid is editing a
+    spreadsheet: a date somebody typed as `01/04/2024` has to come back exactly as
+    they typed it, or they cannot see what is wrong with it. Parsing here and
+    re-rendering would quietly correct some mistakes and mangle others.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    row_number: int = Field(description="Spreadsheet line, header counted.")
+    values: dict[str, str]
+
+
+class ImportPreview(BaseModel):
+    """What a file would do, without doing it.
+
+    Returned by both preview endpoints, so the page renders the same thing whether
+    the rows came from a file or from the user's own edits. The errors are the same
+    errors the import would produce - the identical `validate` call - because a
+    preview that reported less than the import would promise a clean run and then
+    fail.
+    """
+
+    columns: list[str] = Field(description="Header row, in file order. The grid's columns.")
+    rows: list[ImportPreviewRow]
+    errors: list[ImportRowError]
+    row_count: int = Field(description="Rows in the file, before any truncation.")
+    error_count: int
+    truncated: bool = Field(
+        description="True when the file has more rows than the grid will show. The "
+        "rows are a sample; the file is still importable in full."
+    )

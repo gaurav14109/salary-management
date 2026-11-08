@@ -14,6 +14,7 @@ them happened.
 """
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
@@ -22,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.errors import BackdatedSalary, UnprocessableEntity
-from app.models import Employee, Salary
+from app.models import AppUser, Employee, Salary
 from app.models.audit import Action, EntityType
 from app.services import audit, fx
 
@@ -198,7 +199,7 @@ def get_current_salary(db: Session, employee_id: int) -> Salary | None:
 
 
 def get_salary_history(db: Session, employee_id: int) -> list[Salary]:
-    """Every row for this employee, newest first - the order it is read in."""
+    """Every row for this employee, newest first - the order a timeline is read in."""
     return list(
         db.scalars(
             select(Salary)
@@ -206,6 +207,27 @@ def get_salary_history(db: Session, employee_id: int) -> list[Salary]:
             .order_by(Salary.effective_from.desc())
         )
     )
+
+
+def actor_names(db: Session, rows: Iterable[Salary]) -> dict[int, str]:
+    """Map the authors of these rows to their display names.
+
+    One query for the whole history, not one per row: a twelve-year salary history is
+    a dozen rows and would otherwise be a dozen round trips to render one page.
+
+    Falls back to the email, then to None. A person may predate the display name
+    being captured, and a timeline entry reading "Changed by —" is better than one
+    that fails to render.
+    """
+    ids = {row.created_by for row in rows}
+    if not ids:
+        return {}
+    return {
+        user_id: name or email
+        for user_id, name, email in db.execute(
+            select(AppUser.id, AppUser.display_name, AppUser.email).where(AppUser.id.in_(ids))
+        )
+    }
 
 
 # --- refusals, each before anything is written ----------------------------------

@@ -20,7 +20,7 @@ from app.deps import current_actor
 from app.errors import NotFound, PayloadTooLarge, UnprocessableEntity
 from app.models import AppUser
 from app.schemas import Page
-from app.schemas.imports import ImportJobRead
+from app.schemas.imports import ImportJobRead, ImportPreview, ImportPreviewRow
 from app.services import importer
 
 router = APIRouter(prefix="/imports", tags=["imports"])
@@ -30,6 +30,15 @@ log = logging.getLogger("salary.imports")
 # because the row count is only knowable after reading, and reading is the thing
 # being limited.
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+# How many rows the preview will hand back - the same ceiling the import itself has,
+# so any file that can be imported can be seen in full first. That is only safe
+# because the grid mounts a window of rows rather than all of them; rendering 20,000
+# rows outright was measured at 41 seconds followed by the browser running out of
+# memory. Past this the response is explicitly `truncated`, so the page can say the
+# preview is a sample rather than quietly showing part of a file as though it were
+# all of it.
+PREVIEW_MAX_ROWS = importer.MAX_ROWS
 
 
 @router.post(
@@ -66,13 +75,76 @@ async def upload(
         "import_uploaded",
         extra={
             "import_job_id": job.id,
-            "filename": file.filename,
+            # Not "filename": logging owns that name on every LogRecord - it means
+            # the source file that logged the line - and makeRecord raises rather
+            # than let extra= overwrite one. The crash only appears when the logger
+            # is enabled for INFO, so it reached the container and not the tests.
+            "source_filename": file.filename,
             "bytes": len(body),
             "status": job.status,
             "actor_id": actor.id,
         },
     )
     return ImportJobRead.model_validate(job)
+
+
+@router.post(
+    "/preview",
+    response_model=ImportPreview,
+    dependencies=[Depends(require_role(Role.ADMIN, Role.HR_MANAGER))],
+)
+async def preview(
+    file: UploadFile = File(description=".csv or .xlsx"),
+    db: Session = Depends(get_db),
+) -> ImportPreview:
+    """Parse and check a file. Write nothing.
+
+    Deliberately not `run_import(dry_run=True)`. A write path with a flag that
+    sometimes turns the writes off is one wrong default away from importing during a
+    preview, and the flag would have to be threaded through every function the import
+    touches. This calls `parse` and `validate` - the same two the import calls before
+    it writes anything - and then stops, which is a guarantee made of structure
+    rather than of a boolean.
+
+    No ImportJob row either: nothing was attempted, so there is nothing to record.
+    The job row exists to outlive a real attempt.
+    """
+    if not file.filename:
+        raise UnprocessableEntity("No file was uploaded.")
+
+    body = await file.read()
+    if len(body) > MAX_UPLOAD_BYTES:
+        raise PayloadTooLarge(
+            f"That file is {len(body) / 1_048_576:.1f} MB. The limit is "
+            f"{MAX_UPLOAD_BYTES // 1_048_576} MB."
+        )
+
+    rows = importer.parse(io.BytesIO(body), file.filename)
+    return _preview(db, rows)
+
+
+def _preview(db: Session, rows: list[importer.RawRow]) -> ImportPreview:
+    """The shared half: validate, truncate for display, count honestly.
+
+    `row_count` and `error_count` describe the whole file; `rows` is only what the
+    grid gets. Counting the truncated list instead would under-report a long file,
+    which is the one number a user is deciding on.
+    """
+    _, errors = importer.validate(db, rows)
+
+    return ImportPreview(
+        # From the file rather than from REQUIRED_COLUMNS, so a column the file has
+        # and the importer ignores is still visible to whoever is reading the grid.
+        columns=list(rows[0].values) if rows else list(importer.REQUIRED_COLUMNS),
+        rows=[
+            ImportPreviewRow(row_number=row.row_number, values=row.values)
+            for row in rows[:PREVIEW_MAX_ROWS]
+        ],
+        errors=[error.as_dict() for error in errors],
+        row_count=len(rows),
+        error_count=len(errors),
+        truncated=len(rows) > PREVIEW_MAX_ROWS,
+    )
 
 
 @router.get(

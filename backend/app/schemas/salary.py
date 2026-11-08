@@ -5,7 +5,7 @@ doubles - a salary that round-trips through one is no longer the salary that was
 stored, and nobody notices until Finance does.
 """
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -73,8 +73,22 @@ class SalaryRead(BaseModel):
     fx_rate_date: date
     effective_from: date
     effective_to: date | None = Field(description="Inclusive. Null means this is current.")
-    change_reason: str | None
+    change_reason: str | None = Field(
+        default=None,
+        description="NEW_HIRE, MERIT, IMPORT... Makes the history read as a story "
+        "rather than a list of numbers that changed for no stated reason.",
+    )
     created_by: int
+    created_by_name: str | None = Field(
+        default=None,
+        description="Who made the change. 'Changed by user 47' is not an audit trail "
+        "anyone can read.",
+    )
+    created_at: datetime = Field(
+        description="When the change was made, as distinct from effective_from, which "
+        "is when the pay starts applying. A raise entered in November and backdated to "
+        "April is one event in November."
+    )
 
 
 class SalaryChangeResult(BaseModel):
