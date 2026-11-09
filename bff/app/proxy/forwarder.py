@@ -8,6 +8,7 @@ import logging
 
 import httpx
 from fastapi import Request, Response
+from fastapi.responses import StreamingResponse
 
 from app.config import get_settings
 from app.errors import PayloadTooLarge, UpstreamTimeout, UpstreamUnavailable
@@ -112,6 +113,17 @@ async def forward(
 
     body = await read_body(request)
 
+    if _wants_stream(request, safe_path):
+        return await _forward_streaming(
+            http=http,
+            request=request,
+            url=f"{upstream_base.rstrip('/')}/{safe_path}",
+            body=body,
+            headers=headers,
+            upstream_base=upstream_base,
+            safe_path=safe_path,
+        )
+
     try:
         upstream = await http.request(
             request.method,
@@ -135,6 +147,78 @@ async def forward(
     return Response(
         content=upstream.content,
         status_code=upstream.status_code,
+        headers={
+            k: v for k, v in upstream.headers.items() if k.lower() not in BLOCKED_RESPONSE_HEADERS
+        },
+    )
+
+
+# Paths whose responses must reach the browser as they are produced rather than
+# after they are finished. Matched on the request rather than on the upstream's
+# content-type, because the decision has to be made before the request is sent.
+#
+# Two kinds, for two different reasons. The assistant streams prose, and buffering
+# it would undo the streaming entirely - the user would wait the whole generation
+# and then see the answer at once. The export streams rows from a server-side
+# cursor, and buffering it here would hold the whole file in this process, which is
+# the memory the cursor exists to avoid.
+_STREAMING_SUFFIXES = ("ask/stream", "employees/export")
+
+
+def _wants_stream(request: Request, safe_path: str) -> bool:
+    return safe_path.endswith(_STREAMING_SUFFIXES)
+
+
+async def _forward_streaming(
+    *,
+    http: httpx.AsyncClient,
+    request: Request,
+    url: str,
+    body: bytes,
+    headers: dict[str, str],
+    upstream_base: str,
+    safe_path: str,
+) -> StreamingResponse:
+    """Relay a response without ever holding all of it.
+
+    The upstream request stays open for the life of the response, so the connection
+    is closed by the generator rather than by this function - which is why the
+    request is built and sent by hand instead of with `http.request`.
+    """
+    upstream_request = http.build_request(
+        request.method,
+        url,
+        params=request.query_params,
+        content=body,
+        headers=headers,
+    )
+
+    try:
+        upstream = await http.send(upstream_request, stream=True)
+    except httpx.TimeoutException as exc:
+        log.warning("upstream_timeout", extra={"upstream": upstream_base, "path": safe_path})
+        raise UpstreamTimeout() from exc
+    except httpx.HTTPError as exc:
+        log.warning(
+            "upstream_unreachable",
+            extra={"upstream": upstream_base, "path": safe_path, "reason": type(exc).__name__},
+        )
+        raise UpstreamUnavailable() from exc
+
+    async def relay():
+        try:
+            async for chunk in upstream.aiter_raw():
+                yield chunk
+        finally:
+            # Always, including when the browser goes away mid-answer: a connection
+            # left open here is one held against the upstream too.
+            await upstream.aclose()
+
+    return StreamingResponse(
+        relay(),
+        status_code=upstream.status_code,
+        # The same header rules as the buffered path. A streamed response is not a
+        # hole in them - an upstream still has no business setting cookies.
         headers={
             k: v for k, v in upstream.headers.items() if k.lower() not in BLOCKED_RESPONSE_HEADERS
         },

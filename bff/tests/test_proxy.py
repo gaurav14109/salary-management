@@ -342,3 +342,82 @@ def test_client_supplied_identity_headers_cannot_reach_the_upstream(authenticate
     assert sent["x-user-sub"] == session.sub
     assert sent["x-user-roles"] == "hr_manager"
     assert sent["x-gateway-key"] == get_settings().gateway_key
+
+
+# --- streaming ------------------------------------------------------------------
+
+
+@respx.mock
+def test_a_server_sent_event_stream_is_relayed_as_it_arrives(authenticated, session):
+    """The assistant streams its answer. Buffering it here would undo that entirely -
+    the user would wait the full generation time and then see the whole answer at
+    once, which is exactly what streaming exists to avoid.
+
+    Asserted on the response being a stream rather than on timing: a timing
+    assertion in a test suite is a flake waiting for a loaded CI runner.
+    """
+    chunks = [
+        b'data: {"type":"token","text":"Total "}\n\n',
+        b'data: {"type":"token","text":"payroll"}\n\n',
+        b'data: {"type":"done"}\n\n',
+    ]
+
+    respx.post("http://localhost:8002/ask/stream").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=httpx.ByteStream(b"".join(chunks)),
+        )
+    )
+
+    with authenticated.stream(
+        "POST",
+        "/chat/ask/stream",
+        json={"question": "What is our total payroll?"},
+        headers={CSRF_HEADER: session.csrf_token},
+    ) as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        received = list(response.iter_text())
+
+    assert "Total " in "".join(received)
+    assert "done" in "".join(received)
+
+
+@respx.mock
+def test_a_streamed_response_keeps_the_upstream_status(authenticated, session):
+    respx.post("http://localhost:8002/ask/stream").mock(
+        return_value=httpx.Response(
+            503,
+            headers={"content-type": "text/event-stream"},
+            stream=httpx.ByteStream(b'data: {"type":"error"}\n\n'),
+        )
+    )
+
+    response = authenticated.post(
+        "/chat/ask/stream",
+        json={"question": "x"},
+        headers={CSRF_HEADER: session.csrf_token},
+    )
+
+    assert response.status_code == 503
+
+
+@respx.mock
+def test_an_upstream_set_cookie_is_not_relayed_on_a_stream_either(authenticated, session):
+    """The header rules do not get a hole punched in them by the streaming path."""
+    respx.post("http://localhost:8002/ask/stream").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream", "set-cookie": "evil=1"},
+            stream=httpx.ByteStream(b"data: {}\n\n"),
+        )
+    )
+
+    response = authenticated.post(
+        "/chat/ask/stream",
+        json={"question": "x"},
+        headers={CSRF_HEADER: session.csrf_token},
+    )
+
+    assert "set-cookie" not in {k.lower() for k in response.headers}
