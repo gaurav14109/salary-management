@@ -19,6 +19,7 @@ import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 
 import { useAuth } from '../auth/useAuth'
+import { ChatWidget } from '../components/ChatWidget'
 import styles from './AppShell.module.css'
 
 type Destination = {
@@ -112,6 +113,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       </nav>
 
       <main className={styles.main}>{children}</main>
+
+      {/* On every page rather than on a page of its own: the question an HR
+          Manager wants to ask is almost always about what they are looking at,
+          and navigating away to ask it loses that. */}
+      <ChatWidget />
     </div>
   )
 }

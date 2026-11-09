@@ -1,0 +1,112 @@
+/* One anchor, bottom-right, holding whichever of the two is showing.
+   
+   The positioning lives on a plain div rather than on the button or the panel,
+   because Mantine's ActionIcon root sets `position: relative` at the same
+   specificity as a CSS-module class - so whichever stylesheet loads last wins, and
+   when Mantine won, `right` shifted the button leftward from its place in the grid
+   instead of pinning it to the viewport. A wrapper no component library styles
+   cannot lose that race.
+
+   Fixed, not absolute: the assistant stays put while a 10,000-row list scrolls
+   underneath it. */
+.anchor {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 200;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.launcher {
+  box-shadow: var(--shadow-md);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: min(380px, calc(100vw - var(--space-6)));
+  height: min(520px, calc(100vh - var(--space-7)));
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface-sunken);
+}
+
+/* min-height: 0 is load-bearing - without it the log grows past the panel and
+   the composer is pushed off the bottom. */
+.log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.fromUser {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--c-brand-subtle);
+  color: var(--c-text);
+}
+
+.fromAssistant {
+  align-self: flex-start;
+  max-width: 95%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--c-surface-sunken);
+}
+
+.failed {
+  color: var(--c-critical);
+}
+
+/* Where the figure came from. Quiet by design: present for anyone checking, not
+   competing with the answer. */
+.provenance {
+  margin-top: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.doing {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: var(--space-2);
+}
+
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-top: 1px solid var(--c-border);
+}
+
+.composer > :first-child {
+  flex: 1;
+}

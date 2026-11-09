@@ -18,6 +18,13 @@ window.matchMedia ??= ((query: string) => ({
   dispatchEvent: () => false,
 })) as typeof window.matchMedia
 
+/**
+ * jsdom has no scrolling, so this is absent rather than a no-op - and a component
+ * that follows a streaming answer down the page crashes on mount rather than
+ * failing an assertion, which points at the wrong thing entirely.
+ */
+Element.prototype.scrollIntoView ??= () => {}
+
 /** Mantine measures elements; jsdom has no layout engine. */
 globalThis.ResizeObserver ??= class {
   observe() {}
