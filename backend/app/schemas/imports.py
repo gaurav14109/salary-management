@@ -37,7 +37,17 @@ class ImportJobRead(BaseModel):
 
     id: int
     filename: str
-    status: str = Field(description="PENDING, SUCCESS or FAILED.")
+    status: str = Field(
+        description=(
+            "PENDING (queued), PROCESSING (being applied), SUCCESS, FAILED or "
+            "CANCELLED. An upload returns PENDING; poll this endpoint for the rest."
+        )
+    )
+    # Why it failed when the answer is not a row error - an unreadable file, a
+    # crash. `errors` carries the per-row detail and says nothing about these.
+    failure_reason: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
     total_rows: int
     success_rows: int
     error_rows: int

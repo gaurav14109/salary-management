@@ -61,6 +61,19 @@ def headers(roles: str = "hr_manager") -> dict[str, str]:
     }
 
 
+def drain(db, api, job_id: int) -> dict:
+    """Run the queued job the way the worker would, then read it back.
+
+    The worker is a polling loop and testing it directly would be a sleep with extra
+    steps; `claim` and `process` are the two functions it calls, and they are what
+    decides the outcome.
+    """
+    from app.services import importer
+
+    importer.process(db, importer.claim(db))
+    return api.get(f"/imports/{job_id}", headers=headers()).json()
+
+
 def upload(api, *rows, filename="people.csv", roles="hr_manager"):
     body = "\n".join([HEADER, *rows]).encode()
     return api.post(
@@ -76,7 +89,8 @@ def upload(api, *rows, filename="people.csv", roles="hr_manager"):
 def test_an_hr_manager_can_import(api):
     """Bulk load is the HR manager's core job. Requiring an admin would make the
     main feature of the product unusable by its main user."""
-    assert upload(api, ROW).status_code == 201
+    # 202: accepted, not applied. The work happens in the worker.
+    assert upload(api, ROW).status_code == 202
 
 
 def test_an_unauthenticated_upload_is_refused(api):
@@ -93,8 +107,16 @@ def test_an_unauthenticated_upload_is_refused(api):
 # --- the happy path --------------------------------------------------------------
 
 
-def test_a_successful_import_reports_what_it_did(api):
+def test_a_queued_import_starts_as_pending(api):
+    """The upload records the file and returns. Nothing has been read yet."""
     body = upload(api, ROW).json()
+
+    assert body["status"] == "PENDING"
+    assert body["total_rows"] == 0
+
+
+def test_a_successful_import_reports_what_it_did(api, db):
+    body = drain(db, api, upload(api, ROW).json()["id"])
 
     assert body["status"] == "SUCCESS"
     assert body["employees_created"] == 1
@@ -102,12 +124,13 @@ def test_a_successful_import_reports_what_it_did(api):
     assert body["errors"] == []
 
 
-def test_the_counts_distinguish_a_raise_from_an_unchanged_row(api):
+def test_the_counts_distinguish_a_raise_from_an_unchanged_row(api, db):
     """ "1,000 rows succeeded" hides what people actually ask after an import: how
     many got a raise, and how many were already correct."""
-    upload(api, ROW)
+    # Both files go through the queue; the second sees what the first applied.
+    drain(db, api, upload(api, ROW).json()["id"])
 
-    body = upload(api, ROW).json()
+    body = drain(db, api, upload(api, ROW).json()["id"])
 
     assert body["salaries_unchanged"] == 1
     assert body["salaries_created"] == 0
@@ -116,11 +139,11 @@ def test_the_counts_distinguish_a_raise_from_an_unchanged_row(api):
 # --- failure is a 201 with a report ----------------------------------------------
 
 
-def test_a_bad_row_returns_201_with_the_error_not_a_4xx(api):
+def test_a_bad_row_is_recorded_on_the_job_not_returned_as_a_4xx(api, db):
     response = upload(api, ROW.replace(",INR,", ",XYZ,"))
 
-    assert response.status_code == 201
-    body = response.json()
+    assert response.status_code == 202
+    body = drain(db, api, response.json()["id"])
     assert body["status"] == "FAILED"
     assert body["errors"][0]["row_number"] == 2
     assert body["errors"][0]["field"] == "currency"
@@ -132,10 +155,11 @@ def test_nothing_is_committed_when_a_row_fails(api, db):
     assert db.query(Employee).filter(Employee.employee_code.like("EMP-80%")).count() == 0
 
 
-def test_the_error_report_is_addressed_the_way_excel_shows_it(api):
+def test_the_error_report_is_addressed_the_way_excel_shows_it(api, db):
     """Row 2 is the first data line, because row 1 is the header. Off by one here
     sends someone to the wrong line of a ten-thousand-row file."""
-    body = upload(api, ROW, ROW.replace("EMP-8001", "EMP-8002").replace(",1200000,", ",-5,")).json()
+    response = upload(api, ROW, ROW.replace("EMP-8001", "EMP-8002").replace(",1200000,", ",-5,"))
+    body = drain(db, api, response.json()["id"])
 
     assert {e["row_number"] for e in body["errors"]} == {3}
 
@@ -143,8 +167,16 @@ def test_the_error_report_is_addressed_the_way_excel_shows_it(api):
 # --- what it refuses to read ------------------------------------------------------
 
 
-def test_an_unsupported_file_type_is_422(api):
-    assert upload(api, ROW, filename="people.pdf").status_code == 422
+def test_an_unsupported_file_type_fails_in_the_worker_with_a_reason(api, db):
+    """Changed by the queue: the request no longer reads the file, so it cannot
+    reject it. The job carries the reason instead, which is also what the user
+    comes back to read."""
+    response = upload(api, ROW, filename="people.pdf")
+    assert response.status_code == 202
+
+    body = drain(db, api, response.json()["id"])
+    assert body["status"] == "FAILED"
+    assert body["failure_reason"]
 
 
 def test_an_oversized_upload_is_413(api):
@@ -158,7 +190,7 @@ def test_an_oversized_upload_is_413(api):
     assert response.status_code == 413
 
 
-def test_a_missing_column_is_one_error_about_the_file(api):
+def test_a_missing_column_is_one_error_about_the_file(api, db):
     """Not one per row: a missing `amount` column would otherwise produce ten
     thousand identical messages."""
     body = api.post(
@@ -173,7 +205,8 @@ def test_a_missing_column_is_one_error_about_the_file(api):
             )
         },
         headers=headers(),
-    ).json()
+    )
+    body = drain(db, api, body.json()["id"])
 
     assert len(body["errors"]) == 1
     assert body["errors"][0]["row_number"] == 0
@@ -182,8 +215,9 @@ def test_a_missing_column_is_one_error_about_the_file(api):
 # --- reading the history ----------------------------------------------------------
 
 
-def test_a_job_can_be_read_back_after_the_upload(api):
+def test_a_job_can_be_read_back_after_the_upload(api, db):
     job_id = upload(api, ROW.replace(",INR,", ",XYZ,")).json()["id"]
+    drain(db, api, job_id)
 
     body = api.get(f"/imports/{job_id}", headers=headers()).json()
 
@@ -223,8 +257,8 @@ def test_a_successful_upload_logs_without_blowing_up(api, caplog):
     with caplog.at_level(logging.INFO, logger="salary.imports"):
         response = upload(api, ROW)
 
-    assert response.status_code == 201
-    assert any(record.message == "import_uploaded" for record in caplog.records)
+    assert response.status_code == 202
+    assert any(record.message == "import_queued" for record in caplog.records)
 
 
 def test_the_upload_log_line_names_the_file(api, caplog):
@@ -234,7 +268,7 @@ def test_the_upload_log_line_names_the_file(api, caplog):
     with caplog.at_level(logging.INFO, logger="salary.imports"):
         upload(api, ROW, filename="october-payroll.csv")
 
-    logged = next(r for r in caplog.records if r.message == "import_uploaded")
+    logged = next(r for r in caplog.records if r.message == "import_queued")
     assert logged.source_filename == "october-payroll.csv"
     # LogRecord.filename stays what logging means by it: the module that logged.
     assert logged.filename == "imports.py"

@@ -9,6 +9,7 @@ Middleware order matters and is easy to get backwards, so it is not decided here
 ``middleware.install_middleware`` owns it and explains why.
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -16,6 +17,7 @@ from fastapi import Depends, FastAPI
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app import worker
 from app.api.dashboard import router as dashboard_router
 from app.api.employees import router as employees_router
 from app.api.fx import router as fx_router
@@ -34,8 +36,33 @@ log = logging.getLogger("salary.lifecycle")
 async def lifespan(app: FastAPI):
     configure_logging()
     log.info("startup")
-    yield
-    log.info("shutdown")
+
+    # Anything a previous container left PROCESSING is put back in the queue. An
+    # import is one transaction, so a job that died mid-file applied none of it -
+    # and without this it sits PROCESSING forever and blocks everything behind it.
+    requeued = await asyncio.to_thread(worker.recover)
+    if requeued:
+        log.warning("imports_requeued_at_startup", extra={"count": requeued})
+
+    # The import worker lives inside the API process. A separate container would be
+    # one more thing to deploy, monitor and have be down while the API is up, for a
+    # queue that is empty almost all of the time.
+    stop = asyncio.Event()
+    pump = asyncio.create_task(worker.pump(stop), name="import-worker")
+
+    try:
+        yield
+    finally:
+        log.info("shutdown")
+        stop.set()
+        try:
+            # Bounded: a file being applied gets a moment to finish, and a wedged
+            # worker does not hold the container open indefinitely. Whatever is
+            # interrupted rolls back and is requeued on the next start.
+            await asyncio.wait_for(pump, timeout=10)
+        except TimeoutError:
+            log.warning("worker_did_not_stop_in_time")
+            pump.cancel()
 
 
 app = FastAPI(

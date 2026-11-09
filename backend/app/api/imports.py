@@ -44,7 +44,10 @@ PREVIEW_MAX_ROWS = importer.MAX_ROWS
 @router.post(
     "",
     response_model=ImportJobRead,
-    status_code=status.HTTP_201_CREATED,
+    # 202, not 201: the file has been accepted and nothing has been applied yet.
+    # 201 would claim a resource exists that does not - no employee was created by
+    # this request, and may never be if the file turns out to be wrong.
+    status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(require_role(Role.ADMIN, Role.HR_MANAGER))],
 )
 async def upload(
@@ -52,12 +55,17 @@ async def upload(
     db: Session = Depends(get_db),
     actor: AppUser = Depends(current_actor),
 ) -> ImportJobRead:
-    """Import a file, atomically.
+    """Queue a file for import. Returns immediately.
 
-    Returns 201 whether the import succeeded or failed: the ImportJob was created
-    either way, and its `status` and `errors` say what happened. A 4xx here would
-    mean "we could not record your attempt", which is a different and worse thing
-    than "your file had errors".
+    The work happens in a background worker, one file at a time (ADR-0004, revised).
+    A 10,000-row import takes about 72 seconds; doing that inside the request put it
+    past every default HTTP timeout, so the upload that mattered most was the one
+    most likely to be cut off - with the import still running, invisibly, behind it.
+
+    The response is a job in PENDING. Poll `GET /imports/{id}` for PROCESSING, then
+    SUCCESS or FAILED. Nothing here parses or validates the file: rejecting a broken
+    one in the request would read as helpful and would mean reading a 20,000-row
+    spreadsheet twice. It fails in the worker, with a reason on the job row.
     """
     if not file.filename:
         raise UnprocessableEntity("No file was uploaded.")
@@ -69,10 +77,10 @@ async def upload(
             f"{MAX_UPLOAD_BYTES // 1_048_576} MB."
         )
 
-    job = importer.run_import(db, io.BytesIO(body), file.filename, actor_id=actor.id)
+    job = importer.queue(db, io.BytesIO(body), file.filename, actor_id=actor.id)
 
     log.info(
-        "import_uploaded",
+        "import_queued",
         extra={
             "import_job_id": job.id,
             # Not "filename": logging owns that name on every LogRecord - it means
@@ -145,6 +153,15 @@ def _preview(db: Session, rows: list[importer.RawRow]) -> ImportPreview:
         error_count=len(errors),
         truncated=len(rows) > PREVIEW_MAX_ROWS,
     )
+
+
+@router.get(
+    "/queue",
+    dependencies=[Depends(require_role(Role.ADMIN, Role.HR_MANAGER))],
+)
+def queue_depth(db: Session = Depends(get_db)) -> dict:
+    """How many files are waiting, so a wait reads as a wait rather than a hang."""
+    return {"pending": importer.queued_count(db)}
 
 
 @router.get(

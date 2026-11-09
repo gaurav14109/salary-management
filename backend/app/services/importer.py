@@ -23,7 +23,7 @@ import csv
 import io
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, BinaryIO
 
@@ -391,6 +391,154 @@ class _Lookups:
 # --- pass three: apply ----------------------------------------------------------
 
 
+def queue(db: Session, file: BinaryIO, filename: str, *, actor_id: int) -> ImportJob:
+    """Record the file and return. Nothing is parsed, validated or applied.
+
+    This is the whole of what an upload request now does, and the reason it returns
+    in milliseconds rather than the 72 seconds a 10,000-row file took when the work
+    happened inline (ADR-0004, revised).
+
+    Deliberately not parsed here. Rejecting a broken file in the request would read
+    as helpful and would mean a 20,000-row spreadsheet is read twice - once to
+    reject it, once to apply it - putting the slowest part of a bad upload back in
+    front of the user. It fails in the worker instead, with a reason attached.
+    """
+    job = ImportJob(
+        filename=filename,
+        status="PENDING",
+        payload=file.read(),
+        created_by=actor_id,
+    )
+    db.add(job)
+    db.flush()
+    log.info("import_queued", extra={"import_job_id": job.id, "bytes": len(job.payload or b"")})
+    return job
+
+
+def claim(db: Session) -> ImportJob | None:
+    """Take the oldest queued job, or return None if there is nothing to do.
+
+    `FOR UPDATE SKIP LOCKED` is what makes "one file at a time" true with more than
+    one API replica: a second worker skips a row another already holds rather than
+    blocking on it or picking it up twice. Without SKIP LOCKED the second worker
+    waits for the first to finish and then processes the same job again.
+
+    The claim is a write, so the caller owns the transaction - committing is what
+    publishes PROCESSING to everyone else.
+    """
+    job = db.scalars(
+        select(ImportJob)
+        .where(ImportJob.status == "PENDING")
+        .order_by(ImportJob.created_at, ImportJob.id)
+        .limit(1)
+        .with_for_update(skip_locked=True)
+    ).first()
+    if job is None:
+        return None
+
+    job.status = "PROCESSING"
+    job.started_at = datetime.now(UTC)
+    db.flush()
+    log.info("import_claimed", extra={"import_job_id": job.id})
+    return job
+
+
+def process(db: Session, job: ImportJob | None) -> ImportJob | None:
+    """Apply a claimed job, whatever happens.
+
+    Never raises. A worker that dies on a file it cannot read stops the queue for
+    everybody behind it, so every failure becomes a reason on the job row - which
+    is also the thing the user came back to read.
+    """
+    if job is None:
+        return None
+
+    try:
+        rows = parse(io.BytesIO(job.payload or b""), job.filename)
+    except (SalaryError, ValueError, KeyError, TypeError) as exc:
+        # The file itself is unusable. One sentence, not a traceback: the user can
+        # act on "that is not a spreadsheet" and cannot act on a stack.
+        return _abandon(db, job, _reason(exc))
+
+    try:
+        return _apply_rows(db, job, rows)
+    except SalaryError as exc:
+        return _abandon(db, job, str(exc))
+    except Exception as exc:  # noqa: BLE001 - the queue must survive any one file
+        log.exception("import_crashed", extra={"import_job_id": job.id})
+        return _abandon(db, job, _reason(exc))
+
+
+def _apply_rows(db: Session, job: ImportJob, rows: list[RawRow]) -> ImportJob:
+    """Validate and apply, with the same all-or-nothing rule as before."""
+    valid, errors = validate(db, rows)
+    job.total_rows = len(rows)
+
+    if errors:
+        return _finish(db, job, status="FAILED", errors=errors, counts=Counts())
+
+    counts = Counts()
+    try:
+        # One savepoint around the whole file. A failure here - something validation
+        # could not see - rolls the file back and leaves the job row to explain why.
+        with db.begin_nested():
+            for row in valid:
+                _apply(db, row, job_id=job.id, actor_id=job.created_by, counts=counts)
+    except SalaryError as exc:
+        errors = [*counts.errors, RowError(getattr(exc, "row_number", 0), "row", str(exc))]
+        return _finish(db, job, status="FAILED", errors=errors, counts=Counts())
+
+    if counts.errors:
+        return _finish(db, job, status="FAILED", errors=counts.errors, counts=Counts())
+
+    return _finish(db, job, status="SUCCESS", errors=[], counts=counts)
+
+
+def _abandon(db: Session, job: ImportJob, reason: str) -> ImportJob:
+    """Mark a job failed for a reason that is not a row error."""
+    log.warning("import_failed", extra={"import_job_id": job.id, "reason": reason})
+    job.failure_reason = reason
+    return _finish(db, job, status="FAILED", errors=[], counts=Counts())
+
+
+def _reason(exc: Exception) -> str:
+    """A sentence for the user, from an exception that is not one.
+
+    The type name alone ("UnicodeDecodeError") is meaningless to an HR Manager, and
+    the full message can carry file content. This keeps the first line and caps it.
+    """
+    text = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
+    return (text[:200] + "...") if len(text) > 200 else text
+
+
+def requeue_abandoned(db: Session) -> int:
+    """Put jobs left PROCESSING by a stopped worker back in the queue.
+
+    A container that stops mid-import leaves a row saying PROCESSING and a
+    transaction that rolled back - so nothing was applied, and the queue behind it
+    never moves again. Called once at startup.
+
+    Safe precisely because the import is one transaction: there is no half-applied
+    file to reason about, so re-running it is the same as running it.
+    """
+    jobs = db.scalars(select(ImportJob).where(ImportJob.status == "PROCESSING")).all()
+    for job in jobs:
+        job.status = "PENDING"
+        job.started_at = None
+    if jobs:
+        log.warning("imports_requeued", extra={"count": len(jobs)})
+    db.flush()
+    return len(jobs)
+
+
+def queued_count(db: Session) -> int:
+    """How many files are waiting. The UI shows it so a wait reads as a wait."""
+    return (
+        db.scalar(select(func.count()).select_from(ImportJob).where(ImportJob.status == "PENDING"))
+        or 0
+    )
+
+
 def run_import(db: Session, file: BinaryIO, filename: str, *, actor_id: int) -> ImportJob:
     """Parse, validate, and apply if and only if nothing is wrong.
 
@@ -522,6 +670,11 @@ def _finish(
     job.employees_updated = counts.employees_updated
     job.salaries_created = counts.salaries_created
     job.salaries_unchanged = counts.salaries_unchanged
+    job.finished_at = datetime.now(UTC)
+    # The file has been read for the last time. Keeping it would make this table
+    # grow by the size of every upload, for bytes nobody will open again - the job
+    # row is what has to survive, and it is small.
+    job.payload = None
     db.flush()
 
     log.info(
