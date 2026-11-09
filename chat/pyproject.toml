@@ -1,0 +1,45 @@
+[project]
+name = "salary-chat"
+version = "0.1.0"
+description = "The assistant: answers questions about ACME payroll from whitelisted tools"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "httpx>=0.28",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    # LangChain owns the provider mechanics: tool schemas, tool-call parsing,
+    # reassembling arguments split across stream chunks, and the message shapes the
+    # API demands. All three bugs that reached production here lived in exactly
+    # that layer when it was hand-rolled.
+    "langchain-core>=0.3",
+    "langchain-groq>=0.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "ruff>=0.8", "respx>=0.22"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# B008 flags calls in argument defaults, which is correct in general and wrong for
+# FastAPI: Depends(...) in a default IS the dependency-injection mechanism.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "app.access.require_role",
+]
