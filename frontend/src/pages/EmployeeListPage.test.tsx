@@ -37,6 +37,36 @@ describe('EmployeeListPage', () => {
     expect(screen.getByText('EMP-1042')).toBeInTheDocument()
   })
 
+  it('shows the department and the job title as two columns', async () => {
+    /* The Department header used to render the job title, so the list could not
+       answer "who is in Engineering" at all - and a reader had no way to know the
+       column was lying. They are different facts about a person. */
+    listSpy()
+    renderPage(<EmployeeListPage />)
+
+    const row = (await screen.findByText('Priya Sharma')).closest('tr') as HTMLElement
+    const table = row.closest('table') as HTMLElement
+    const headers = within(table)
+      .getAllByRole('columnheader')
+      .map((th) => th.textContent?.trim())
+    const cells = within(row)
+      .getAllByRole('cell')
+      .map((td) => td.textContent?.trim())
+
+    expect(cells[headers.indexOf('Department')]).toBe('Engineering')
+    expect(cells[headers.indexOf('Job title')]).toBe('Engineer')
+  })
+
+  it('shows the band by name rather than by its primary key', async () => {
+    /* The badge printed band_id, so the column read "3" while the filter beside it
+       read "L3" - two spellings of one fact, and the one on screen meaningless. */
+    listSpy()
+    renderPage(<EmployeeListPage />)
+
+    const row = (await screen.findByText('Priya Sharma')).closest('tr') as HTMLElement
+    expect(within(row).getByText('L3')).toBeInTheDocument()
+  })
+
   it('shows the USD figure with the local amount beneath it', async () => {
     // USD is the column you can compare across countries; the local amount is what
     // the person is actually paid. Showing only one of them is a different lie each

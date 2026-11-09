@@ -89,6 +89,18 @@ export function EmployeeListPage() {
     return map
   }, [refData])
 
+  // A row carries department_id and band_id, not their names. The reference data is
+  // already here for the filters, so the names are a lookup rather than a wider
+  // employee payload: the alternative is denormalising a name onto every row of a
+  // 10,000-row page to save a map this page already builds.
+  const names = useMemo(() => {
+    const departments = new Map<number, string>()
+    refData?.departments.forEach((d) => departments.set(d.id, d.name))
+    const bands = new Map<number, string>()
+    refData?.bands.forEach((b) => bands.set(b.id, b.name))
+    return { departments, bands }
+  }, [refData])
+
   function toggleSort(field: string) {
     setSort((current) =>
       current.field === field
@@ -201,6 +213,7 @@ export function EmployeeListPage() {
                   onSort={toggleSort}
                 />
                 <Table.Th>Department</Table.Th>
+                <Table.Th>Job title</Table.Th>
                 <Table.Th>Band</Table.Th>
                 <Table.Th>Country</Table.Th>
                 <SortableHeader
@@ -214,7 +227,12 @@ export function EmployeeListPage() {
             </Table.Thead>
             <Table.Tbody>
               {data?.items.map((item) => (
-                <Row key={item.employee.id} item={item} minorUnits={minorUnits} />
+                <Row
+                  key={item.employee.id}
+                  item={item}
+                  minorUnits={minorUnits}
+                  names={names}
+                />
               ))}
             </Table.Tbody>
           </Table>
@@ -294,9 +312,11 @@ function SortableHeader({
 function Row({
   item,
   minorUnits,
+  names,
 }: {
   item: EmployeeListItem
   minorUnits: Map<string, number>
+  names: { departments: Map<number, string>; bands: Map<number, string> }
 }) {
   const { employee, current_salary: salary } = item
 
@@ -313,12 +333,24 @@ function Row({
         </div>
       </Table.Td>
       <Table.Td>
+        {/* The header said Department and the cell showed the job title. Two
+            different facts - "Engineering" and "Staff Engineer" answer different
+            questions - so they are two columns. */}
+        <Text size="sm">
+          {names.departments.get(employee.department_id) ?? (
+            <span className="u-faint">—</span>
+          )}
+        </Text>
+      </Table.Td>
+      <Table.Td>
         <Text size="sm">{employee.job_title}</Text>
       </Table.Td>
       <Table.Td>
         {employee.band_id ? (
+          // The name, not the id. This printed the primary key, so the column read
+          // 4 where the filter beside it reads L3.
           <Badge color="neutral" size="sm">
-            {employee.band_id}
+            {names.bands.get(employee.band_id) ?? employee.band_id}
           </Badge>
         ) : (
           <span className="u-faint">—</span>
