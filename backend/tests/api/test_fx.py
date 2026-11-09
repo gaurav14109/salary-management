@@ -1,8 +1,9 @@
 """The FX rate endpoints.
 
-Reference data an admin maintains. HR managers read salaries converted by these
+Reference data the HR manager maintains. An admin reads salaries converted by these
 rates and must not be able to change the rates themselves - that would be a way to
-move every reported figure without touching a single salary.
+move every reported figure without touching a single salary, from a role that is
+meant only to look.
 """
 
 from datetime import date
@@ -31,11 +32,12 @@ def api(db, reference_data) -> TestClient:
     return TestClient(app)
 
 
-def headers(roles: str = "admin") -> dict[str, str]:
+def headers(roles: str = "hr_manager") -> dict[str, str]:
+    """The default caller writes, and writing belongs to the HR manager."""
     return {
         "X-Gateway-Key": GATEWAY_KEY,
-        "X-User-Sub": "kc-sub-admin",
-        "X-User-Email": "admin@acme.test",
+        "X-User-Sub": "kc-sub-hr",
+        "X-User-Email": "hr@acme.test",
         "X-User-Name": "rahul",
         "X-User-Roles": roles,
     }
@@ -48,8 +50,8 @@ def a_rate(**overrides) -> dict:
 # --- authorization --------------------------------------------------------------
 
 
-def test_hr_manager_cannot_post_fx_rate(api, db):
-    response = api.post("/fx-rates", json=a_rate(), headers=headers(roles="hr_manager"))
+def test_an_admin_cannot_post_fx_rate(api, db):
+    response = api.post("/fx-rates", json=a_rate(), headers=headers(roles="admin"))
 
     assert response.status_code == 403
     # Nothing was written. Counted for this currency and date rather than globally,
@@ -57,13 +59,13 @@ def test_hr_manager_cannot_post_fx_rate(api, db):
     assert db.query(FxRate).filter_by(currency="INR", as_of=date(2026, 3, 1)).count() == 0
 
 
-def test_admin_can_post_fx_rate(api):
+def test_hr_manager_can_post_fx_rate(api):
     assert api.post("/fx-rates", json=a_rate(), headers=headers()).status_code == 201
 
 
-def test_hr_manager_can_read_fx_rates(api):
+def test_an_admin_can_read_fx_rates(api):
     """Reading them explains a USD figure on screen. Writing them changes it."""
-    assert api.get("/fx-rates", headers=headers(roles="hr_manager")).status_code == 200
+    assert api.get("/fx-rates", headers=headers(roles="admin")).status_code == 200
 
 
 def test_an_unauthenticated_request_cannot_read_rates(api):

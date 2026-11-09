@@ -113,4 +113,8 @@ def require_role(*allowed: Role):
             raise Forbidden(f"This action requires one of: {names}.")
         return principal
 
+    # Published rather than left in the closure so the rule "admin never writes" can
+    # be asserted across every route at once. A test that has to read __closure__ to
+    # find this would break the next time the function is edited.
+    dependency.allowed_roles = frozenset(allowed)
     return dependency

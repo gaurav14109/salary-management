@@ -52,7 +52,11 @@ def list_fx_rates(
     "",
     response_model=FxRateRead,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_role(Role.ADMIN))],
+    # The HR manager, not the admin. Admin is read-only: it sees the whole
+    # organisation and changes none of it. A rate moves every reported figure in
+    # its currency without touching a salary, so it belongs to the role that is
+    # accountable for those figures.
+    dependencies=[Depends(require_role(Role.HR_MANAGER))],
 )
 def create_fx_rate(
     body: FxRateCreate,

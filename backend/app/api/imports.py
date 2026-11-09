@@ -48,7 +48,8 @@ PREVIEW_MAX_ROWS = importer.MAX_ROWS
     # 201 would claim a resource exists that does not - no employee was created by
     # this request, and may never be if the file turns out to be wrong.
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(require_role(Role.ADMIN, Role.HR_MANAGER))],
+    # Writing, so the HR manager only. Admin reads.
+    dependencies=[Depends(require_role(Role.HR_MANAGER))],
 )
 async def upload(
     file: UploadFile = File(description=".csv or .xlsx"),
@@ -99,7 +100,9 @@ async def upload(
 @router.post(
     "/preview",
     response_model=ImportPreview,
-    dependencies=[Depends(require_role(Role.ADMIN, Role.HR_MANAGER))],
+    # With the upload, not with the reads: a preview nobody is allowed to act on is
+    # a button that fails at the last step.
+    dependencies=[Depends(require_role(Role.HR_MANAGER))],
 )
 async def preview(
     file: UploadFile = File(description=".csv or .xlsx"),

@@ -41,11 +41,15 @@ def api(db, reference_data, actor_id) -> TestClient:
     return TestClient(app)
 
 
-def headers(roles: str = "admin") -> dict[str, str]:
+def headers(roles: str = "hr_manager") -> dict[str, str]:
+    """The default caller is the HR manager, because the default act is a write.
+
+    Admin is read-only: it sees the whole organisation and changes none of it.
+    """
     return {
         "X-Gateway-Key": GATEWAY_KEY,
-        "X-User-Sub": "kc-sub-admin",
-        "X-User-Email": "admin@acme.test",
+        "X-User-Sub": "kc-sub-hr",
+        "X-User-Email": "hr@acme.test",
         "X-User-Name": "rahul",
         "X-User-Roles": roles,
     }
@@ -75,12 +79,45 @@ def created(api, reference_data) -> int:
 # --- authorization --------------------------------------------------------------
 
 
-def test_hr_manager_cannot_create_an_employee(api, reference_data):
-    """Creating a person is an admin act. Editing their pay is the HR manager's job -
-    the roles differ because the consequences do."""
-    response = api.post("/employees", json=a_person(reference_data), headers=headers("hr_manager"))
+def test_an_admin_cannot_create_an_employee(api, reference_data):
+    """Admin reads. Every write belongs to the HR manager, who is the person
+    accountable for the record being right."""
+    response = api.post("/employees", json=a_person(reference_data), headers=headers("admin"))
 
     assert response.status_code == 403
+
+
+def test_an_admin_cannot_change_a_salary(api, created):
+    response = api.put(
+        f"/employees/{created}/salary",
+        json={"amount": "1200000.000", "currency": "INR", "effective_from": "2026-04-01"},
+        headers=headers("admin"),
+    )
+
+    assert response.status_code == 403
+
+
+def test_an_admin_cannot_edit_an_employee(api, created):
+    response = api.patch(
+        f"/employees/{created}", json={"job_title": "Staff Engineer"}, headers=headers("admin")
+    )
+
+    assert response.status_code == 403
+
+
+def test_an_admin_cannot_terminate_an_employee(api, created):
+    response = api.put(
+        f"/employees/{created}/status",
+        json={"status": "INACTIVE", "termination_date": "2026-06-30"},
+        headers=headers("admin"),
+    )
+
+    assert response.status_code == 403
+
+
+def test_an_admin_can_still_read_the_list(api):
+    """Read-only is read, not blocked."""
+    assert api.get("/employees", headers=headers("admin")).status_code == 200
 
 
 def test_hr_manager_can_edit_a_salary(api, created, reference_data):
@@ -243,14 +280,15 @@ def test_terminating_without_a_date_is_422(api, created):
     assert response.status_code == 422
 
 
-def test_hr_manager_cannot_terminate(api, created):
+def test_hr_manager_can_terminate(api, created):
+    """Ending someone's employment is a write, and writes are the HR manager's."""
     response = api.put(
         f"/employees/{created}/status",
         json={"status": "INACTIVE", "termination_date": "2026-09-30"},
         headers=headers("hr_manager"),
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 200
 
 
 # --- salary ---------------------------------------------------------------------

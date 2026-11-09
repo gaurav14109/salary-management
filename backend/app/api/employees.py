@@ -38,12 +38,17 @@ router = APIRouter(prefix="/employees", tags=["employees"])
 
 MAX_PAGE_SIZE = 200
 
-# Reading is the job. Writing a person is an admin act; writing their pay is the HR
-# manager's. The two differ because the consequences do - a wrong salary is a
-# correctable row, a wrong employee record is a person who does not exist.
+# Both roles read. Only the HR manager writes.
+#
+# Admin is a read-only role by decision: it exists to see the whole organisation,
+# not to change it. Every write - creating a person, editing their record, ending
+# their employment, setting their pay - belongs to the HR manager, who is the person
+# accountable for the figure being right.
+#
+# Enforced here rather than by hiding buttons. A hidden button is a UI courtesy; the
+# dependency is what makes a hand-written request fail.
 READERS = require_role(Role.ADMIN, Role.HR_MANAGER)
-PAY_WRITERS = require_role(Role.ADMIN, Role.HR_MANAGER)
-ADMIN_ONLY = require_role(Role.ADMIN)
+WRITERS = require_role(Role.HR_MANAGER)
 
 
 @router.get("", response_model=Page[EmployeeListItem], dependencies=[Depends(READERS)])
@@ -212,7 +217,7 @@ def get_employee(employee_id: int, db: Session = Depends(get_db)) -> EmployeeDet
     "",
     response_model=EmployeeRead,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(ADMIN_ONLY)],
+    dependencies=[Depends(WRITERS)],
 )
 def create_employee(
     body: EmployeeCreate,
@@ -235,7 +240,7 @@ def create_employee(
     return EmployeeRead.model_validate(person)
 
 
-@router.patch("/{employee_id}", response_model=EmployeeRead, dependencies=[Depends(ADMIN_ONLY)])
+@router.patch("/{employee_id}", response_model=EmployeeRead, dependencies=[Depends(WRITERS)])
 def update_employee(
     employee_id: int,
     body: EmployeeUpdate,
@@ -257,9 +262,7 @@ def update_employee(
     return EmployeeRead.model_validate(person)
 
 
-@router.put(
-    "/{employee_id}/status", response_model=EmployeeRead, dependencies=[Depends(ADMIN_ONLY)]
-)
+@router.put("/{employee_id}/status", response_model=EmployeeRead, dependencies=[Depends(WRITERS)])
 def set_employee_status(
     employee_id: int,
     body: StatusUpdate,
@@ -285,7 +288,7 @@ def set_employee_status(
 @router.put(
     "/{employee_id}/salary",
     response_model=SalaryChangeResult,
-    dependencies=[Depends(PAY_WRITERS)],
+    dependencies=[Depends(WRITERS)],
 )
 def set_salary(
     employee_id: int,
