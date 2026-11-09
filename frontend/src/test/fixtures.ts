@@ -151,6 +151,9 @@ export function anImportJob(overrides: Partial<ImportJob> = {}): ImportJob {
     id: 7,
     filename: 'people.csv',
     status: 'SUCCESS',
+    failure_reason: null,
+    started_at: '2026-11-08T10:00:00Z',
+    finished_at: '2026-11-08T10:00:05Z',
     total_rows: 3,
     success_rows: 3,
     error_rows: 0,
@@ -169,6 +172,9 @@ export function anImportJob(overrides: Partial<ImportJob> = {}): ImportJob {
 export function aFailedImportJob(overrides: Partial<ImportJob> = {}): ImportJob {
   return anImportJob({
     status: 'FAILED',
+    failure_reason: null,
+    started_at: '2026-11-08T10:00:00Z',
+    finished_at: '2026-11-08T10:00:05Z',
     success_rows: 0,
     error_rows: 2,
     employees_created: 0,

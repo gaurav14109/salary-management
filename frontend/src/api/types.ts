@@ -93,7 +93,18 @@ export type ImportRowError = {
 export type ImportJob = {
   id: number
   filename: string
-  status: 'PENDING' | 'SUCCESS' | 'FAILED'
+  /**
+   * PENDING is queued, PROCESSING is being applied by the worker, and the last
+   * three are terminal. An upload returns PENDING; the page polls for the rest.
+   */
+  status: 'PENDING' | 'PROCESSING' | 'SUCCESS' | 'FAILED' | 'CANCELLED'
+  /**
+   * Why a file failed when the answer is not a row error - an unreadable format,
+   * a crash. `errors` carries the per-row detail and says nothing about these.
+   */
+  failure_reason: string | null
+  started_at: string | null
+  finished_at: string | null
   total_rows: number
   success_rows: number
   error_rows: number

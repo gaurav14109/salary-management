@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ImportPage } from './ImportPage'
 import { ApiError } from '../api/client'
 import * as resources from '../api/resources'
-import type { ImportPreview } from '../api/types'
+import type { ImportJob, ImportPreview } from '../api/types'
 import { aFailedImportJob, anImportJob } from '../test/fixtures'
 import { renderPage } from '../test/render'
 
@@ -212,16 +212,231 @@ describe('ImportPage', () => {
     expect(within(rows[0]).getByText('october.csv')).toBeInTheDocument()
   })
 
-  it('refreshes the history after an upload', async () => {
-    const list = historySpy([])
-    uploadSpy()
+})
+
+// --- the queue -------------------------------------------------------------------
+
+describe('a queued import', () => {
+  /**
+   * The upload now returns a job in PENDING and the work happens in a worker, so
+   * the page has to follow it. What a user needs to see is which of the four states
+   * they are in and, when it ends badly, why.
+   */
+
+  function job(overrides: Partial<ImportJob> = {}): ImportJob {
+    return { ...anImportJob(), status: 'PENDING', total_rows: 0, ...overrides }
+  }
+
+  it('refreshes the history once the import has actually finished', async () => {
+    /* Changed by the queue. Invalidating when the file was *queued* would refresh
+       the employee list before a single row had been applied, so the user would
+       see the old data and conclude the import had done nothing. */
+    const history = historySpy([])
     previewSpy()
+    vi.spyOn(resources.imports, 'upload').mockResolvedValue({
+      ...anImportJob(),
+      status: 'PENDING',
+    })
+    vi.spyOn(resources.imports, 'detail').mockResolvedValue(anImportJob())
     const user = userEvent.setup()
     renderPage(<ImportPage />)
-    await waitFor(() => expect(list).toHaveBeenCalledTimes(1))
+
+    await pickAndImport(user)
+    await screen.findByLabelText('2 employees created')
+
+    await waitFor(() => expect(history).toHaveBeenCalledTimes(2))
+  })
+
+  it('says the file is queued rather than claiming it imported', async () => {
+    /* The old page announced a result. Announcing one now would be a lie: nothing
+       has been read yet. */
+    historySpy([])
+    previewSpy()
+    vi.spyOn(resources.imports, 'upload').mockResolvedValue(job())
+    vi.spyOn(resources.imports, 'detail').mockResolvedValue(job())
+    const user = userEvent.setup()
+    renderPage(<ImportPage />)
 
     await pickAndImport(user)
 
-    await waitFor(() => expect(list).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText(/queued/i)).toBeInTheDocument()
+  })
+
+  it('polls until the job finishes, then shows what it did', async () => {
+    historySpy([])
+    previewSpy()
+    vi.spyOn(resources.imports, 'upload').mockResolvedValue(job())
+    const detail = vi
+      .spyOn(resources.imports, 'detail')
+      .mockResolvedValueOnce(job({ status: 'PROCESSING' }))
+      .mockResolvedValue(anImportJob())
+    const user = userEvent.setup()
+    renderPage(<ImportPage />)
+
+    await pickAndImport(user)
+
+    expect(await screen.findByLabelText('2 employees created')).toBeInTheDocument()
+    expect(detail).toHaveBeenCalled()
+  })
+
+  it('says it is being applied while the worker has it', async () => {
+    /* PROCESSING is a different thing from PENDING and the difference matters to
+       somebody watching: one means "nothing is happening yet", the other means
+       "do not close this". */
+    historySpy([])
+    previewSpy()
+    vi.spyOn(resources.imports, 'upload').mockResolvedValue(job())
+    vi.spyOn(resources.imports, 'detail').mockResolvedValue(job({ status: 'PROCESSING' }))
+    const user = userEvent.setup()
+    renderPage(<ImportPage />)
+
+    await pickAndImport(user)
+
+    expect(await screen.findByText('Importing people.csv')).toBeInTheDocument()
+  })
+
+  it('shows why a file failed when the reason is not a row error', async () => {
+    /* An unreadable file has no row to point at. Without this the page shows "0
+       errors" beside the word FAILED, which tells the user nothing. */
+    historySpy([])
+    previewSpy()
+    vi.spyOn(resources.imports, 'upload').mockResolvedValue(job())
+    vi.spyOn(resources.imports, 'detail').mockResolvedValue(
+      job({
+        status: 'FAILED',
+        failure_reason: 'That file is not a readable spreadsheet.',
+        errors: [],
+      }),
+    )
+    const user = userEvent.setup()
+    renderPage(<ImportPage />)
+
+    await pickAndImport(user)
+
+    expect(await screen.findByText(/not a readable spreadsheet/)).toBeInTheDocument()
+  })
+
+  it('stops polling once the job reaches a terminal state', async () => {
+    historySpy([])
+    previewSpy()
+    vi.spyOn(resources.imports, 'upload').mockResolvedValue(job())
+    const detail = vi.spyOn(resources.imports, 'detail').mockResolvedValue(anImportJob())
+    const user = userEvent.setup()
+    renderPage(<ImportPage />)
+
+    await pickAndImport(user)
+    await screen.findByLabelText('2 employees created')
+
+    const callsWhenDone = detail.mock.calls.length
+    await new Promise((resolve) => setTimeout(resolve, 150))
+
+    expect(detail.mock.calls.length).toBe(callsWhenDone)
+  })
+
+  it('still reports row errors from a failed job', async () => {
+    historySpy([])
+    previewSpy()
+    vi.spyOn(resources.imports, 'upload').mockResolvedValue(job())
+    vi.spyOn(resources.imports, 'detail').mockResolvedValue(aFailedImportJob())
+    const user = userEvent.setup()
+    renderPage(<ImportPage />)
+
+    await pickAndImport(user)
+
+    expect(await screen.findByText(/nothing was imported/i)).toBeInTheDocument()
+  })
+})
+
+// --- an import already running -----------------------------------------------------
+
+describe('an import that was started elsewhere', () => {
+  /**
+   * The id of the job being followed used to live in this component's state, so
+   * leaving the page threw it away: a user who switched tabs mid-import came back
+   * to a page that said nothing was happening, while the worker was still applying
+   * their file. The in-flight job comes from the server now, not from the click
+   * that started it.
+   */
+
+  function running(overrides: Partial<ImportJob> = {}): ImportJob {
+    return anImportJob({
+      status: 'PROCESSING',
+      total_rows: 0,
+      success_rows: 0,
+      finished_at: null,
+      ...overrides,
+    })
+  }
+
+  it('shows the file being imported on a page that was just opened', async () => {
+    const job = running({ id: 21, filename: 'october-payroll.csv' })
+    historySpy([job])
+    vi.spyOn(resources.imports, 'detail').mockResolvedValue(job)
+    renderPage(<ImportPage />)
+
+    expect(await screen.findByText(/importing october-payroll\.csv/i)).toBeInTheDocument()
+  })
+
+  it('shows a file still waiting its turn', async () => {
+    const job = running({ id: 22, filename: 'november.csv', status: 'PENDING' })
+    historySpy([job])
+    vi.spyOn(resources.imports, 'detail').mockResolvedValue(job)
+    renderPage(<ImportPage />)
+
+    expect(await screen.findByText(/november\.csv is queued/i)).toBeInTheDocument()
+  })
+
+  it('follows the oldest unfinished file, which is the one the worker has', async () => {
+    /* One at a time, so with two in flight the newest is queued behind the other.
+       Reporting that one would say "queued" while a file was visibly importing. */
+    const detail = vi.spyOn(resources.imports, 'detail').mockResolvedValue(running({ id: 30 }))
+    historySpy([
+      running({ id: 31, filename: 'second.csv', status: 'PENDING' }),
+      running({ id: 30, filename: 'first.csv' }),
+    ])
+    renderPage(<ImportPage />)
+
+    await waitFor(() => expect(detail).toHaveBeenCalledWith(30))
+  })
+
+  it('says how many files are behind the one being applied', async () => {
+    vi.spyOn(resources.imports, 'detail').mockResolvedValue(running({ id: 30 }))
+    historySpy([
+      running({ id: 32, filename: 'third.csv', status: 'PENDING' }),
+      running({ id: 31, filename: 'second.csv', status: 'PENDING' }),
+      running({ id: 30, filename: 'first.csv' }),
+    ])
+    renderPage(<ImportPage />)
+
+    expect(await screen.findByText(/2 other files are waiting behind it/i)).toBeInTheDocument()
+  })
+
+  it('reports an unfinished job in the history as queued, not as a failure', async () => {
+    /* The column read every non-SUCCESS job as "N errors", so a file that had not
+       started yet appeared in the history as a failure with zero errors. */
+    historySpy([running({ id: 40, filename: 'waiting.csv', status: 'PENDING' })])
+    vi.spyOn(resources.imports, 'detail').mockResolvedValue(running({ id: 40 }))
+    renderPage(<ImportPage />)
+
+    const table = await screen.findByRole('table', { name: /previous imports/i })
+    const row = within(table).getAllByRole('row')[1]
+    expect(within(row).getByText(/queued/i)).toBeInTheDocument()
+    expect(within(row).queryByText(/errors/i)).not.toBeInTheDocument()
+  })
+
+  it('keeps showing the result after the import it adopted has finished', async () => {
+    /* The job drops out of the in-flight list the moment it succeeds. Dropping the
+       card with it would mean the user who came back to watch never sees how it
+       went. */
+    historySpy([running({ id: 50 })])
+    vi.spyOn(resources.imports, 'detail')
+      .mockResolvedValueOnce(running({ id: 50 }))
+      .mockResolvedValue(anImportJob({ id: 50 }))
+    renderPage(<ImportPage />)
+
+    // Longer than the 1 s poll: the second answer only arrives on the next tick.
+    expect(
+      await screen.findByLabelText('2 employees created', {}, { timeout: 3000 }),
+    ).toBeInTheDocument()
   })
 })
