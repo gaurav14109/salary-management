@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { AuthProvider } from './auth/AuthProvider'
 import { RequireAuth } from './auth/RequireAuth'
+import { RequireRole } from './auth/RequireRole'
 import { AppShell } from './layout/AppShell'
 import { EmployeeDetailPage } from './pages/EmployeeDetailPage'
 import { EmployeeListPage } from './pages/EmployeeListPage'
@@ -9,16 +10,6 @@ import { DashboardPage } from './pages/DashboardPage'
 import { HealthPage } from './pages/HealthPage'
 import { ImportPage } from './pages/ImportPage'
 import { Providers } from './providers'
-
-/** A page that is not built yet, so the shell can be used before they all are. */
-function Placeholder({ title }: { title: string }) {
-  return (
-    <div className="u-page">
-      <h1 className="u-title">{title}</h1>
-      <p className="u-muted">Not built yet.</p>
-    </div>
-  )
-}
 
 export function App() {
   return (
@@ -39,8 +30,18 @@ export function App() {
                     <Route path="/employees" element={<EmployeeListPage />} />
                     <Route path="/employees/:id" element={<EmployeeDetailPage />} />
                     <Route path="/dashboard" element={<DashboardPage />} />
-                    <Route path="/import" element={<ImportPage />} />
-                    <Route path="/fx-rates" element={<Placeholder title="FX Rates" />} />
+                    {/* Importing writes employees and salaries, so it is the HR
+                        manager's. An admin reads the organisation and changes none
+                        of it - without this, typing the URL renders a dropzone
+                        whose every upload fails at 403. */}
+                    <Route
+                      path="/import"
+                      element={
+                        <RequireRole role="hr_manager">
+                          <ImportPage />
+                        </RequireRole>
+                      }
+                    />
                     {/* The employee list is the landing page: it is where the work
                         is, and where someone arrives wanting to change a salary. */}
                     <Route path="*" element={<Navigate to="/employees" replace />} />

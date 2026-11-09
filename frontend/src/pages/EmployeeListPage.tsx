@@ -14,7 +14,6 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconDownload,
-  IconPlus,
   IconSearch,
   IconSelector,
 } from '@tabler/icons-react'
@@ -24,7 +23,6 @@ import { Link } from 'react-router-dom'
 
 import { employees, reference, type EmployeeFilters } from '../api/resources'
 import type { EmployeeListItem } from '../api/types'
-import { useAuth } from '../auth/useAuth'
 import { formatLocal, formatUsd } from '../format/money'
 import styles from './EmployeeListPage.module.css'
 
@@ -35,7 +33,6 @@ const SEARCH_DEBOUNCE_MS = 300
 type Sort = { field: string; order: 'asc' | 'desc' }
 
 export function EmployeeListPage() {
-  const auth = useAuth()
   const [search, setSearch] = useState('')
   const [debouncedSearch] = useDebouncedValue(search, SEARCH_DEBOUNCE_MS)
   const [country, setCountry] = useState<string | null>(null)
@@ -132,11 +129,6 @@ export function EmployeeListPage() {
           >
             Export CSV
           </Button>
-          {/* Creating a person is an admin act. Offering it to an HR manager and
-              failing at 403 is worse manners than not offering it. */}
-          {auth.hasRole('admin') && (
-            <Button leftSection={<IconPlus size={16} stroke={1.6} />}>Add employee</Button>
-          )}
         </Group>
       </div>
 

@@ -262,19 +262,22 @@ describe('EmployeeDetailPage', () => {
     expect(await screen.findByRole('button', { name: /change salary/i })).toBeInTheDocument()
   })
 
-  it('does not offer an HR manager the admin-only edits', async () => {
+  it('does not let an admin change pay', async () => {
+    // Admin is a read-only role: it sees the whole organisation and changes none
+    // of it. The service refuses the write either way; this stops the button being
+    // offered at all.
     detailSpy()
-    render(aDetail(), ['hr_manager'])
+    render(aDetail(), ['admin'])
     await screen.findByRole('heading', { name: /priya sharma/i })
 
-    expect(screen.queryByRole('button', { name: /edit details/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /change salary/i })).not.toBeInTheDocument()
   })
 
-  it('offers an admin the details edit', async () => {
+  it('still shows an admin the pay they are there to read', async () => {
     detailSpy()
     render(aDetail(), ['admin'])
 
-    expect(await screen.findByRole('button', { name: /edit details/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /priya sharma/i })).toBeInTheDocument()
   })
 
   it('does not offer to change the pay of someone who has left', async () => {

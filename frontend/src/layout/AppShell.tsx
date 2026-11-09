@@ -10,7 +10,6 @@
 import { Avatar, Badge, Button, Group, Text } from '@mantine/core'
 import {
   IconChartBar,
-  IconCurrencyDollar,
   IconLogout,
   IconUpload,
   IconUsers,
@@ -33,14 +32,13 @@ type Destination = {
 const DESTINATIONS: Destination[] = [
   { to: '/employees', label: 'Employees', icon: <IconUsers size={18} stroke={1.6} /> },
   { to: '/dashboard', label: 'Dashboard', icon: <IconChartBar size={18} stroke={1.6} /> },
-  { to: '/import', label: 'Import', icon: <IconUpload size={18} stroke={1.6} /> },
   {
-    to: '/fx-rates',
-    label: 'FX Rates',
-    icon: <IconCurrencyDollar size={18} stroke={1.6} />,
-    // Admin only. A rate moves every reported figure in its currency without
-    // touching a salary, which is a larger power than editing one person's pay.
-    requiresRole: 'admin',
+    to: '/import',
+    label: 'Import',
+    icon: <IconUpload size={18} stroke={1.6} />,
+    // Import writes employees and salaries, so it is the HR manager's. An admin
+    // reads the whole organisation and changes none of it.
+    requiresRole: 'hr_manager',
   },
 ]
 

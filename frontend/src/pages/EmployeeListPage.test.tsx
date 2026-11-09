@@ -201,21 +201,23 @@ describe('EmployeeListPage', () => {
     )
   })
 
-  it('does not offer an HR manager the button to add an employee', async () => {
-    // Creating a person is an admin act. Offering it and failing at 403 is worse
-    // manners than not offering it.
+  it('offers nobody a button to add an employee', async () => {
+    /* Employees arrive by import, which is the workflow HR actually has. The
+       button was a stub offered to an admin - a read-only role - so it promised a
+       power that role does not have and a page that was never built. */
     listSpy()
-    renderPage(<EmployeeListPage />, { roles: ['hr_manager'] })
+    renderPage(<EmployeeListPage />, { roles: ['admin'] })
     await screen.findByText('Priya Sharma')
 
     expect(screen.queryByRole('button', { name: /add employee/i })).not.toBeInTheDocument()
   })
 
-  it('offers an admin the button to add an employee', async () => {
+  it('still offers an admin the export, which is a read', async () => {
     listSpy()
     renderPage(<EmployeeListPage />, { roles: ['admin'] })
+    await screen.findByText('Priya Sharma')
 
-    expect(await screen.findByRole('button', { name: /add employee/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /export csv/i })).toBeInTheDocument()
   })
 
   it('links each row to the person, so the timeline is one click away', async () => {

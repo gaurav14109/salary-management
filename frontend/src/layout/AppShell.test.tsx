@@ -52,19 +52,20 @@ describe('AppShell', () => {
     expect(screen.getByRole('link', { name: /import/i })).toBeInTheDocument()
   })
 
-  it('does not offer FX rates to an HR manager', () => {
-    // Writing a rate moves every reported figure in that currency without touching a
-    // single salary. Offering the link and failing at 403 would be worse manners
-    // than not offering it.
-    renderShell(['hr_manager'])
-
-    expect(screen.queryByRole('link', { name: /fx rates/i })).not.toBeInTheDocument()
-  })
-
-  it('offers FX rates to an admin', () => {
+  it('does not offer import to an admin', () => {
+    // Admin is read-only. Import writes employees and salaries, so offering the
+    // link and failing at 403 would be worse manners than not offering it.
     renderShell(['admin'])
 
-    expect(screen.getByRole('link', { name: /fx rates/i })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /import/i })).not.toBeInTheDocument()
+  })
+
+  it('still offers an admin everything there is to read', () => {
+    // Read-only is read, not shut out.
+    renderShell(['admin'])
+
+    expect(screen.getByRole('link', { name: /employees/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /dashboard/i })).toBeInTheDocument()
   })
 
   it('shows who is signed in and in what capacity', () => {

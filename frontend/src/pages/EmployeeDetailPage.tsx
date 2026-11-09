@@ -9,7 +9,7 @@
 
 import { Badge, Button, Card, Group, Loader, Text } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconAlertTriangle, IconArrowLeft, IconEdit, IconPencil } from '@tabler/icons-react'
+import { IconAlertTriangle, IconArrowLeft, IconPencil } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -139,15 +139,11 @@ export function EmployeeDetailPage() {
         </div>
 
         <Group gap="xs">
-          {auth.hasRole('admin') && (
-            <Button variant="default" leftSection={<IconEdit size={16} stroke={1.6} />}>
-              Edit details
-            </Button>
-          )}
-          {/* Not offered for someone who has left: the service refuses it, and
-              offering a button that fails at 422 is worse manners than not
-              offering it. */}
-          {active && (
+          {/* Two conditions, two different reasons. An admin is a read-only role
+              and may not change pay at all. Someone who has left is refused by the
+              service whoever asks - and offering a button that fails at 422 is
+              worse manners than not offering it. */}
+          {auth.hasRole('hr_manager') && active && (
             <Button
               leftSection={<IconPencil size={16} stroke={1.6} />}
               onClick={() => setEditing(true)}
