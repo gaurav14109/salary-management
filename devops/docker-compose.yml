@@ -173,9 +173,8 @@ services:
 
       # Must match the api service's. See the note there.
       GATEWAY_KEY: ${GATEWAY_KEY:-local-dev-gateway-key-not-for-production}
-      # Not built yet, and deliberately still on the host: a P1 service that is
-      # absent must not stop the stack from starting.
-      CHAT_SERVICE_URL: http://host.docker.internal:8002
+      # The assistant, on the compose network like every other upstream.
+      CHAT_SERVICE_URL: http://chat:8002
 
       # Dev key, committed on purpose so a fresh clone starts. Rotating it logs
       # everyone out, which is the correct behaviour: old cookies stop decoding.
@@ -189,6 +188,35 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "8001:8001"
+
+  chat:
+    # The assistant. Separate from the API on purpose: it holds no salary data and
+    # has no database credentials for any, reading instead through the salary API
+    # with the asking user's claims. One data-access path to audit, not two.
+    build:
+      context: ..
+      dockerfile: chat/Dockerfile
+    image: salary-chat:dev
+    container_name: salary-chat
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # Must match the api service's, or every tool call is refused at its gate.
+      GATEWAY_KEY: ${GATEWAY_KEY:-local-dev-gateway-key-not-for-production}
+      SALARY_API_URL: http://api:8000
+
+      # Groq, for its free tier. Unset by default: the service starts and says so
+      # on the first question rather than failing to boot, because the rest of the
+      # product does not depend on the assistant.
+      # Get a key at https://console.groq.com/keys, then:
+      #   export GROQ_API_KEY=gsk_...   (or put it in devops/.env)
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
+      LOG_LEVEL: INFO
+    # No published port, for the same reason the API has none: claims headers are
+    # only trustworthy because nothing but the BFF can reach this service.
+    restart: unless-stopped
 
   web:
     build:
