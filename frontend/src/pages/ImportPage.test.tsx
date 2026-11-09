@@ -11,7 +11,7 @@
  */
 
 import { screen, waitFor, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import userEvent, { type UserEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ImportPage } from './ImportPage'
@@ -62,6 +62,28 @@ async function pickFile(user: ReturnType<typeof userEvent.setup>, name = 'people
   const input = document.querySelector('input[type="file"]') as HTMLInputElement
   await user.upload(input, file)
   return file
+}
+
+/** The detail poll's interval, from ImportPage. Ten of these is a generous wait. */
+const POLL_INTERVAL_MS = 1000
+
+/**
+ * Run a test on fake time, with the pieces that have to know about it wired up.
+ *
+ * Two of them do. `userEvent` schedules its own delays, so it is handed an advancer
+ * or every click hangs. And Testing Library only looks for *Jest* fake timers - it
+ * has no Vitest branch - so without the shim `waitFor` would sit on a `setInterval`
+ * that fake time never moves, and the test would deadlock rather than fail.
+ */
+async function withFakeTimers(body: (user: UserEvent) => Promise<void>) {
+  vi.useFakeTimers()
+  vi.stubGlobal('jest', { advanceTimersByTime: (ms: number) => vi.advanceTimersByTime(ms) })
+  try {
+    await body(userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) }))
+  } finally {
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  }
 }
 
 afterEach(() => {
@@ -317,20 +339,25 @@ describe('a queued import', () => {
   })
 
   it('stops polling once the job reaches a terminal state', async () => {
-    historySpy([])
-    previewSpy()
-    vi.spyOn(resources.imports, 'upload').mockResolvedValue(job())
-    const detail = vi.spyOn(resources.imports, 'detail').mockResolvedValue(anImportJob())
-    const user = userEvent.setup()
-    renderPage(<ImportPage />)
+    /* The assertion is that a timer does *not* fire, which real time cannot prove:
+       sleeping less than the 1s poll proves nothing, and sleeping longer makes the
+       suite slower and flaky on a loaded machine. Fake time lets the test skip ten
+       intervals instantly and deterministically. */
+    await withFakeTimers(async (user) => {
+      historySpy([])
+      previewSpy()
+      vi.spyOn(resources.imports, 'upload').mockResolvedValue(job())
+      const detail = vi.spyOn(resources.imports, 'detail').mockResolvedValue(anImportJob())
+      renderPage(<ImportPage />)
 
-    await pickAndImport(user)
-    await screen.findByLabelText('2 employees created')
+      await pickAndImport(user)
+      await screen.findByLabelText('2 employees created')
 
-    const callsWhenDone = detail.mock.calls.length
-    await new Promise((resolve) => setTimeout(resolve, 150))
+      const callsWhenDone = detail.mock.calls.length
+      await vi.advanceTimersByTimeAsync(10 * POLL_INTERVAL_MS)
 
-    expect(detail.mock.calls.length).toBe(callsWhenDone)
+      expect(detail.mock.calls.length).toBe(callsWhenDone)
+    })
   })
 
   it('still reports row errors from a failed job', async () => {
