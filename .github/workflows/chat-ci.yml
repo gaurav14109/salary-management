@@ -1,0 +1,53 @@
+name: Chat CI
+
+# The assistant's suite is the one that proves it cannot answer from memory: a tool
+# the caller may not use is refused at dispatch, a refused tool touches no data, and
+# an ungrounded answer is never emitted as tokens. Those are security properties, so
+# they belong in CI rather than in a developer's habit of running pytest.
+#
+# No database and no model key. The chat service has no salary credentials by design
+# - it reads through the API - so the suite swaps in a FakeSalary, and the LLM is
+# driven through a stub rather than a live Groq call. That is what keeps this job
+# offline, free and deterministic.
+on:
+  push:
+    paths:
+      - "chat/**"
+      - ".github/workflows/chat-ci.yml"
+  pull_request:
+    paths:
+      - "chat/**"
+      - ".github/workflows/chat-ci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chat:
+    name: ruff + pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: chat
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: chat/pyproject.toml
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format check
+        run: ruff format --check .
+
+      - name: Test
+        run: pytest -v

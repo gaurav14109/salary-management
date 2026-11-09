@@ -1,0 +1,54 @@
+name: BFF CI
+
+# The BFF holds the two secrets the browser must never see - the Keycloak client
+# secret and the session key - so its suite is the one that proves a cookie cannot
+# be forged and a token cannot be skipped. It had no workflow until now, which meant
+# 108 tests only ever ran on a laptop.
+#
+# No `services:` block and no secrets: the suite stands Keycloak up as a fake behind
+# the TokenIssuer protocol and signs its own tokens with a key generated in
+# tests/keys.py. Nothing here reaches the network, so there is nothing to wait for.
+on:
+  push:
+    paths:
+      - "bff/**"
+      - ".github/workflows/bff-ci.yml"
+  pull_request:
+    paths:
+      - "bff/**"
+      - ".github/workflows/bff-ci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bff:
+    name: ruff + pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bff
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: bff/pyproject.toml
+
+      # A clean install, not a warm venv. This is the step that catches a
+      # dependency someone installed locally and forgot to declare.
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format check
+        run: ruff format --check .
+
+      - name: Test
+        run: pytest -v
