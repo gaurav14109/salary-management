@@ -415,13 +415,54 @@ def queue(db: Session, file: BinaryIO, filename: str, *, actor_id: int) -> Impor
     return job
 
 
+# The whole application's import queue, as one advisory lock. An arbitrary constant;
+# what matters is that every replica uses the same one.
+#
+# Why a lock at all, when claiming already uses FOR UPDATE SKIP LOCKED: SKIP LOCKED
+# stops two workers taking the *same* job. It does nothing to stop them taking two
+# *different* jobs and applying both at once - which is what happens the moment the
+# API runs more than one replica. Two imports interleaving would each have "is this
+# employee code already taken?" answered against a database the other is halfway
+# through changing.
+#
+# So "one file at a time" needs a lock over the queue, not over a row.
+QUEUE_LOCK = 0x5A1A47
+
+
+def acquire_queue_lock(db: Session) -> bool:
+    """Take the right to process imports, or return False if another worker has it.
+
+    Session-level, not transaction-level, and the distinction is load-bearing:
+    `run_one` commits after claiming so PROCESSING is visible while the file is being
+    applied, and a transaction-level lock would be released by exactly that commit -
+    freeing the next worker halfway through the import. The bug would only appear
+    under concurrency, which is the worst place to find one.
+
+    `try_` rather than the blocking form: a worker that cannot have the lock should
+    go back to sleep, not queue up behind the one that does.
+
+    Held by the database connection, so a container that dies releases it without
+    anything having to notice. No lease, no expiry, no stuck queue.
+    """
+    return bool(db.scalar(select(func.pg_try_advisory_lock(QUEUE_LOCK))))
+
+
+def release_queue_lock(db: Session) -> None:
+    """Give it back. Safe to call when the lock is not held."""
+    db.scalar(select(func.pg_advisory_unlock(QUEUE_LOCK)))
+
+
 def claim(db: Session) -> ImportJob | None:
     """Take the oldest queued job, or return None if there is nothing to do.
 
-    `FOR UPDATE SKIP LOCKED` is what makes "one file at a time" true with more than
-    one API replica: a second worker skips a row another already holds rather than
-    blocking on it or picking it up twice. Without SKIP LOCKED the second worker
-    waits for the first to finish and then processes the same job again.
+    `FOR UPDATE SKIP LOCKED` stops two workers taking the *same* row: a second worker
+    skips a row another already holds rather than blocking on it or picking it up
+    twice. Without SKIP LOCKED the second worker waits for the first to finish and
+    then processes the same job again.
+
+    It does *not* make "one file at a time" true on its own - two workers would
+    simply take two different jobs. That guarantee comes from `acquire_queue_lock`
+    above, which is held across the whole cycle.
 
     The claim is a write, so the caller owns the transaction - committing is what
     publishes PROCESSING to everyone else.

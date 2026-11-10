@@ -22,7 +22,7 @@ Codes are `BULK-000000`…`BULK-009999`, chosen not to collide with `SEED-` or `
 import itself takes **~72 seconds**, because each row goes through the employee and
 salary services individually — roughly 50,000 round trips. That is past most default
 HTTP timeouts, so a browser upload may give up before the server finishes, and the
-import is still running when it does. [ADR-0004](../../plan_doc/adr/0004-synchronous-import-no-job-queue.md)
+import is still running when it does. [ADR-0004](../../docs/adr/0004-synchronous-import-no-job-queue.md)
 has the measurement and what would fix it.
 
 Use it to exercise the **preview** screen at full size. To get 10,000 employees into
@@ -71,7 +71,7 @@ row 1 — so a user can go straight to the row that is wrong.
 The point of this file is the all-or-nothing rule: three of its ten rows are perfectly
 valid and **none of them is imported**. A half-applied payroll file is worse than a
 rejected one, because reconciling it is manual work (see
-[ADR-0004](../../plan_doc/adr/0004-synchronous-import-no-job-queue.md)).
+[ADR-0004](../../docs/adr/0004-synchronous-import-no-job-queue.md)).
 
 ## Columns
 

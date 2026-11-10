@@ -60,9 +60,44 @@ so it cannot fail halfway and leave the tables partly emptied.
 
 ## Users
 
-The realm import seeds `hr` and `admin-user`, and runs **only when the realm does not
-exist** — so editing `keycloak/realm-salary.json` does nothing to a stack that is
-already up. For that, `create_user.py` talks to the admin API:
+The realm import seeds `hr-manager` and `admin-user`, and runs **only when the realm
+does not exist** — so editing `keycloak/realm-salary.json` does nothing to a stack
+that is already up, and the file and the running realm drift apart silently.
+
+Two scripts cover the two things you actually want.
+
+### Make the realm match the file — `seed-users.sh`
+
+```bash
+./seed-users.sh            # apply the users the realm file describes
+./seed-users.sh --list     # show what Keycloak has right now, change nothing
+```
+
+Idempotent: it creates what is missing, updates what changed, grants roles that
+should be there and **takes away roles that should not**. That last part is the
+half that matters — the realm had given `admin-user` both roles, so signing in as
+"the admin" and importing a file worked, not because an admin may import but
+because that account was also an HR manager. Run it whenever you are unsure what
+state Keycloak is in; running it twice leaves the same result as running it once.
+
+Three things it handles that a hand-written `kcadm.sh` call does not:
+
+- **Renames instead of duplicating.** The file renamed `hr` to `hr-manager` after
+  Keycloak already held the account. A second user would be refused for the
+  duplicate email, or split one person's audit trail across two `sub`s — so it
+  matches on email and renames.
+- **Restores `editUsernameAllowed`.** Keycloak refuses username changes unless the
+  realm opts in. The flag is turned on for the rename and put back exactly as it
+  was: a seeding script must not leave a realm more permissive than it found it.
+- **Only touches `admin` and `hr_manager`.** Keycloak gives every account composite
+  roles of its own; stripping `default-roles-salary` leaves a user who cannot sign
+  in at all.
+
+Passwords default to the realm file's dev credentials. Override with
+`HR_PASSWORD` / `ADMIN_PASSWORD`. Nothing here is appropriate for a deployed
+Keycloak — it logs in as the bootstrap admin over plain HTTP.
+
+### Add one user ad hoc — `create_user.py`
 
 ```bash
 python3 create_user.py anita --password s3cret --roles hr_manager \
@@ -77,9 +112,40 @@ refused everywhere. A user who should survive `down -v` goes in the realm JSON t
 
 ## Running it
 
+From a clean clone, three commands and the product is usable:
+
 ```bash
-docker compose up -d --wait
+docker compose up -d --wait                              # the whole stack, schema included
+./seed-users.sh                                          # the two sign-ins
+cd ../backend && python scripts/seed.py --employees 10000   # data to look at
 ```
+
+Then open <http://localhost:5173> and sign in as `hr-manager` / `hr`.
+
+Only the first is required to *start* — the stack comes up healthy with an empty
+database. The other two exist because a schema with no rows in it and no account to
+sign in with is not something you can judge.
+
+### Common commands
+
+| Command | What it does |
+|---|---|
+| `docker compose up -d --wait` | Start everything, waiting for healthy. Re-running applies new migrations |
+| `docker compose ps` | What is up, and whether it is healthy |
+| `docker compose logs -f api` | Follow one service — `api`, `bff`, `chat`, `web`, `keycloak`, `db` |
+| `docker compose restart api` | Restart one service. Data survives |
+| `docker compose build api web` | Rebuild after a code change, then `up -d` to swap them in |
+| `docker compose up -d --build --wait` | Rebuild everything and start, in one step |
+| `docker compose stop web` | Stop one service, to run it on the host with hot reload instead |
+| `docker compose exec db psql -U salary -d salary` | A psql prompt on the salary database |
+| `cd ../backend && python scripts/seed.py --employees 10000` | Generate employees and salaries. Run from the host — `scripts/` is not in the API image, and `db` publishes :5432 for exactly this |
+| `docker compose down` | Stop and remove the containers. **Volumes survive, so data does** |
+| `docker compose down -v` | Also delete the volumes — **destroys the salary data and every Keycloak account** |
+
+`down -v` is the only one of these that loses anything. It is also the only way to
+make `keycloak/realm-salary.json` and `postgres-init/` authoritative again, since
+both run only against an empty volume — and because Keycloak and the salary data
+share one Postgres instance, that trade is all-or-nothing.
 
 That is the whole stack, migrations included. A one-shot `migrate` service runs
 `alembic upgrade head` and exits; the API waits on its exit code rather than racing

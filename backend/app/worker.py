@@ -44,20 +44,42 @@ def run_one() -> bool:
     Synchronous and self-contained, with its own session: this is what runs on a
     worker thread, and sharing a session with the request that queued the job would
     mean the import's transaction and a request's transaction were the same one.
+
+    The advisory lock is what makes "one file at a time" a property of the code
+    rather than of the deployment. Without it the rule held only because there
+    happened to be one container, and `--scale api=2` would have removed it silently.
     """
     with SessionLocal() as db:
-        job = importer.claim(db)
-        if job is None:
+        if not importer.acquire_queue_lock(db):
+            # Another replica is mid-import. Nothing to do but wait - and waiting on
+            # the lock would just mean queueing up to repeat this check later.
             return False
-        # Committed before the work starts, so PROCESSING is visible while the file
-        # is being applied rather than only once it is over.
-        db.commit()
 
-        job_id = job.id
-        importer.process(db, job)
-        db.commit()
-        log.info("import_processed", extra={"import_job_id": job_id, "status": job.status})
-        return True
+        try:
+            job = importer.claim(db)
+            if job is None:
+                return False
+            # Committed before the work starts, so PROCESSING is visible while the
+            # file is being applied rather than only once it is over. The lock
+            # survives this commit because it is session-scoped, not transactional.
+            db.commit()
+
+            job_id = job.id
+            importer.process(db, job)
+            db.commit()
+            log.info("import_processed", extra={"import_job_id": job_id, "status": job.status})
+            return True
+        finally:
+            # Released on every path, including the one where process() let something
+            # through. A lock held by a worker that has given up is a queue that
+            # never moves again.
+            #
+            # And it must be explicit: closing the session returns its connection to
+            # the pool with the socket still open, so Postgres still sees the session
+            # and still holds the lock. Only the process actually dying releases it
+            # on its own. Skipping this would deadlock the queue with nothing
+            # obviously broken anywhere.
+            importer.release_queue_lock(db)
 
 
 def recover() -> int:

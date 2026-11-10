@@ -68,13 +68,18 @@ it receives the decoded claims as headers and decides only whether the role is a
 
 ## Test users
 
-| Username | Password | Roles |
-|---|---|---|
-| `hr` | `hr` | `hr_manager` |
-| `admin-user` | `admin` | `admin`, `hr_manager` |
+| Username | Password | Roles | Can |
+|---|---|---|---|
+| `hr-manager` | `hr` | `hr_manager` | Everything: people, pay, FX rates, imports |
+| `admin-user` | `admin` | `admin` | Read only — list, detail, dashboard, export, assistant |
 
 Local credentials for a local realm. They are not secrets, and nothing here is reused
 anywhere real.
+
+`admin-user` used to hold both roles, which made "can an admin write?" answer yes for
+the wrong reason — the account was also an HR manager. To apply this table to a realm
+that is already running, use [`../seed-users.sh`](../seed-users.sh): it grants the
+roles that should be there and removes the ones that should not.
 
 ## Adding a user
 
@@ -104,7 +109,7 @@ as well.
 curl -s -X POST http://localhost:8080/realms/salary/protocol/openid-connect/token \
   -d grant_type=password -d client_id=salary-bff \
   -d client_secret=local-dev-bff-secret-not-for-production \
-  -d username=hr -d password=hr | jq -r .access_token
+  -d username=hr-manager -d password=hr | jq -r .access_token
 ```
 
 `salary-bff` is a confidential client, so the secret is required even for this grant. It
