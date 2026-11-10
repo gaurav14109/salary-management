@@ -12,7 +12,7 @@ Grouped by what you would be checking. Each group is in reading order.
 | Document | Why |
 |---|---|
 | [`requirements.md`](requirements.md) | What was asked for, what was deliberately left out, and why |
-| [`architecture.md`](architecture.md) | The system at four zoom levels: context, containers, one request end to end, deployment |
+| [`Architecture Diagram.docx`](architecture.md) | The system at four zoom levels: context, containers, one request end to end, deployment |
 | [`adr/`](adr/) | The decisions that shaped it — six short records, one decision each |
 | [`security.md`](security.md) | What protects the salary data, mapped to the OWASP Top 10 |
 
@@ -54,7 +54,7 @@ ones.
 | [`adr/0002`](adr/0002-freeze-fx-rate-at-write-time.md) | The USD figure and its FX rate are frozen onto the row at write time |
 | [`adr/0004`](adr/0004-synchronous-import-no-job-queue.md) | Import runs inside the request — **superseded**, on its own measurement |
 | [`adr/0006`](adr/0006-no-token-at-the-salary-service.md) | No token crosses to the salary service; claims arrive as headers |
-| [`adr/0007`](adr/0007-imports-run-in-a-background-queue.md) | Import runs in a background queue, one file at a time |
+| [`adr/0007`](adr/0007-imports-run-in-a-background-queue.md) | Import runs in a background queue, one file at a time / celeary/RabbitMQ can be the future scope for backgrund processing |
 | [`adr/0008`](adr/0008-uploaded-files-live-on-the-job-row.md) | The uploaded file lives on the job row; MinIO is future scope, with the trigger written down |
 
 ### 5. Performance
